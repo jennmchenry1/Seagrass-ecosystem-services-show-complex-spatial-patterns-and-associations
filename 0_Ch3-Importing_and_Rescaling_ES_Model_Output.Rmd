@@ -7,7 +7,9 @@ output: html_document
 
 # Script Purpose
 
+
 This script was written with the intention of loading, manipulating, and rescaling the outputs of five ecosystem service models for further analysis. This is part of my dissertation work on marine ecosystem services from seagrasses in Florida. 
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
