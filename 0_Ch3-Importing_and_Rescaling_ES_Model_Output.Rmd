@@ -7,7 +7,9 @@ output: html_document
 
 # Script Purpose
 
+
 This script was written with the intention of loading, manipulating, and rescaling the outputs of five ecosystem service models for further analysis. This is part of my dissertation work on marine ecosystem services from seagrasses in Florida. 
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -102,28 +104,6 @@ overlap[overlap >= -1]<-NA
 overlap[overlap < -3]<-NA
 overlap=mask(overlap,mask = study_area)
 ```
-
-#Developing a relationship between shallow and deep water biodiversity
-```{r}
-# 
-# BioDiv_SW_SAV<-raster(paste(Saved_RData_Dir,"Modeling_Biodiversity_Enhancement_Value/model_output/August_2020_seagrassmodel_predictions/Annual_Predictions/Hill0_Seines_MeanAnnual_SAV_Current.tif",sep=""))
-# BioDiv_DW_SAV<-raster(paste(Saved_RData_Dir,"Modeling_Biodiversity_Enhancement_Value/model_output/August_2020_seagrassmodel_predictions/Annual_Predictions/Hill0_Otters_MeanAnnual_SAV_Current.tif",sep=""))
-
-# BioDiv_SW_SAV_overlap<-mask(BioDiv_SW_SAV,mask=overlap)
-# BioDiv_DW_SAV_overlap<-mask(BioDiv_DW_SAV,mask=overlap)
-# # #extracting the relationship between datasets
-# LM=stack(BioDiv_SW_SAV,BioDiv_DW_SAV)
-# LM_df=as.data.frame(rasterToPoints(LM))
-# LM_df<-LM_df[complete.cases(LM_df),]
-# names(LM_df)<-c("x","y","SW_Biodiv","DW_Biodiv")
-# # 
-# lm_biodiv=lm(DW_Biodiv~SW_Biodiv,LM_df)
-# summary(lm_biodiv)
-# lm_biodiv # DW Biodiversity = 1.09 &  SW Biodiversity +1.75
-
-
-```
-
 
 #prepping Biodiversity EV datasets
 ```{r}
