@@ -1,0 +1,807 @@
+---
+title: "1_Plotting_and_Summarizing_the_Original_Models"
+author: "Jennifer McHenry"
+date: "03/21/2022"
+output: html_document
+---
+
+# Script Purpose
+
+This script was written with the intention of plotting and summarizing the final ecosystem service models for the paper. This is part of my dissertation work on marine ecosystem services from sea grasses in Florida. 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(RColorBrewer)
+library(mgcv)
+library(tools)
+library(viridis)
+library(ggpubr)
+# library(ggsn)
+library(remotes)
+library(raster)
+# remotes::install_version("Rttf2pt1", version = "1.3.8")
+library(extrafont)
+library(ggcorrplot)
+# extrafont::font_import() 
+loadfonts("win")
+library(ggplot2)
+library(corrplot)
+library(colorspace)
+library(rgeos)
+
+
+wd=getwd()
+
+username=as.vector(strsplit(wd,"/"));names(username)<-c("username")
+
+Saved_RData_Dir=paste("C:/Users/",username$username[3],"/Dropbox/GITHUB/Disseratation/",sep="")
+
+```
+
+#Functions
+```{r}
+pal_teal_blue_purple <- rainbow(12)
+
+odds_to_prob=function(x){
+        prob<-exp(x)/(1+exp(x))
+        return(prob)
+}
+
+
+```
+
+#loading masking and spatial domain data
+```{r}
+memory.limit(40000)
+#loading data masks
+Seagrass_Cover=raster(paste(Saved_RData_Dir,"Modeling_Biodiversity_Enhancement_Value/model_output/August_2020_seagrassmodel_predictions/Annual_Predictions/Seagrass_Cover_MeanAnnual_Current_Corrected_CorExp.tif",sep=""))
+names(Seagrass_Cover)<-c("Seagrass_Cover")
+
+#Total Predicted_Seagrass
+Total_Predicted_Seagrass=Seagrass_Cover
+Total_Predicted_Seagrass[Total_Predicted_Seagrass<5]<-NA
+Total_Predicted_Seagrass[Total_Predicted_Seagrass>=5]<-0
+
+# Study area
+study_area<-raster("input_data/study_area.tif")
+
+#masking the seagrass datasets
+Total_Predicted_Seagrass=mask(Total_Predicted_Seagrass,mask = study_area)
+
+#Confirmed Seagrass Areas
+Confirmed=raster("input_data/seagrass_area_masks/confirmed_seagrass_beds.tif")
+Confirmed=mask(Confirmed,mask = study_area)
+
+Seagrass_Cover_Confirmed=mask(Seagrass_Cover,mask=Confirmed)
+
+
+#loading regions raster
+FCMap=raster("input_data/FCMaP_Workshop_Regions/FCMaP.tif")
+FCMap=resample(x=FCMap,y = study_area,method="ngb")
+
+```
+
+#Loading ES outputs (Raw)
+```{r}
+#loading ES maps
+BioDiv_EV_Raw=raster("input_data/ES-Model-Outputs/BioDiv_EV_Raw_Confirmed.tif")
+NurHab_EV_Raw=raster("input_data/ES-Model-Outputs/NursHab_EV_Raw_Confirmed.tif")
+Gray_Snapper_EV_Raw=raster("input_data/ES-Model-Outputs/Gray_Snapper_EV_Raw_Confirmed.tif")
+Lane_Snapper_EV_Raw=raster("input_data/ES-Model-Outputs/Lane_Snapper_EV_Raw_Confirmed.tif")
+White_Grunt_EV_Raw=raster("input_data/ES-Model-Outputs/White_Grunt_EV_Raw_Confirmed.tif")
+Spotted_Seatrout_EV_Raw=raster("input_data/ES-Model-Outputs/Spotted_Seatrout_EV_Raw_Confirmed.tif")
+Sheepshead_EV_Raw=raster("input_data/ES-Model-Outputs/Sheepshead_EV_Raw_Confirmed.tif")
+Pink_Shrimp_EV_Raw=raster("input_data/ES-Model-Outputs/Pink_Shrimp_EV_Raw_Confirmed.tif")
+BlueCar_EV_Raw=raster("input_data/ES-Model-Outputs/BC_Emissions_EV_Raw_Confirmed.tif")
+RecTour_EV_Raw=raster("input_data/ES-Model-Outputs/Rec_EV_Raw_Confirmed.tif")
+Expos_EV_Raw=raster("input_data/ES-Model-Outputs/Exposure_EV_Raw_Confirmed.tif")
+
+ES_Raw=stack(FCMap,Seagrass_Cover,BioDiv_EV_Raw,NurHab_EV_Raw,Gray_Snapper_EV_Raw,Lane_Snapper_EV_Raw,White_Grunt_EV_Raw,Spotted_Seatrout_EV_Raw,Sheepshead_EV_Raw,Pink_Shrimp_EV_Raw,BlueCar_EV_Raw,RecTour_EV_Raw,Expos_EV_Raw)
+
+ES_Raw=mask(ES_Raw,mask=Confirmed)
+ES_Raw_df=as.data.frame(rasterToPoints(ES_Raw))
+names(ES_Raw_df)<-c("x","y","Regions","Seagrass_Cover","BioDiv","NurHab","Gray_Snapper","Lane_Snapper","White_Grunt","Spotted_Seatrout","Sheepshead","Pink_Shrimp","BlueCar","RecTour","Expos")
+ES_Raw_df<-ES_Raw_df[complete.cases(ES_Raw_df),]
+summary(ES_Raw_df)
+
+```
+
+#Testing for signficance of overall enhancement (Raw)
+```{r}
+#Wilcoxon two sided rank sum test 
+#biodiversity enhancement
+wilcox.test(ES_Raw_df$BioDiv,alternative = "two.sided")
+wilcox.test(ES_Raw_df$NurHab,alternative = "two.sided")
+wilcox.test(ES_Raw_df$Gray_Snapper,alternative = "two.sided")
+wilcox.test(ES_Raw_df$Pink_Shrimp,alternative = "two.sided")
+wilcox.test(ES_Raw_df$Lane_Snapper,alternative = "two.sided")
+wilcox.test(ES_Raw_df$Spotted_Seatrout,alternative = "two.sided")
+wilcox.test(ES_Raw_df$Sheepshead,alternative = "two.sided")
+wilcox.test(ES_Raw_df$White_Grunt,alternative = "two.sided")
+wilcox.test(ES_Raw_df$BlueCar,alternative = "two.sided")
+wilcox.test(ES_Raw_df$RecTour,alternative = "two.sided")
+wilcox.test(ES_Raw_df$Expos,alternative = "two.sided")
+```
+
+#Spatial Correlations (Raw)
+```{r}
+round(cor(ES_Raw_df[c(5:15)]),1)
+
+##Pearson Correlations 
+ES_Raw_cors_df<-ES_Raw_df
+
+names(ES_Raw_cors_df)<-c("Longitude","Latitude","Regions","Total Seagrass Cover","BE","NHE","NHE-GS","NHE-LS","NHE-WG","NHE-SS","NHE-S","NHE-PS","BCE","RE","CPE")
+
+#main ecosystem services
+ES_Raw_cors<-round(cor(ES_Raw_cors_df[c(5:6,13:15)]),1)
+
+
+corrplot(ES_cors, type = 'lower', order = 'hclust', tl.col = 'black',
+         cl.ratio = 0.2, tl.srt = 45, col = COL2('PRGn', 10),addCoef.col = 'black',diag=FALSE)
+
+```
+
+#Summarizing Regional Differences (Raw)
+```{r}
+#average for regions
+ES_study_area_summary_df <- ES_Raw_df%>%
+  select(Regions:Expos)%>%
+  mutate(Regions=ifelse(Regions==1,"2_Big_Bend",ifelse(Regions==2,"4_South",ifelse(Regions==4,"1_Panhandle","3_South_Central"))))%>%
+  pivot_longer(names_to = "ES",cols = BioDiv:Expos,values_to = "Raw_Value")%>%
+  group_by(ES)%>%
+  summarize(mean=mean(Raw_Value,na.rm=TRUE))%>%
+  pivot_wider(names_from=ES,values_from = mean)
+
+#CV for regions
+ES_study_area_CV_df <- ES_Raw_df%>%
+  select(Regions:Expos)%>%
+  mutate(Regions=ifelse(Regions==1,"2_Big_Bend",ifelse(Regions==2,"4_South",ifelse(Regions==4,"1_Panhandle","3_South_Central"))))%>%
+  pivot_longer(names_to = "ES",cols = BioDiv:Expos,values_to = "Raw_Value")%>%
+  group_by(ES)%>%
+  summarize(CV=cv(Raw_Value,na.rm=TRUE))%>%
+  pivot_wider(names_from=ES,values_from = CV)
+
+#average for regions
+ES_regional_summary_df <- ES_Raw_df%>%
+  select(Regions:Expos)%>%
+  mutate(Regions=ifelse(Regions==1,"2_Big_Bend",ifelse(Regions==2,"4_South",ifelse(Regions==4,"1_Panhandle","3_South_Central"))))%>%
+  pivot_longer(names_to = "ES",cols = BioDiv:Expos,values_to = "Raw_Value")%>%
+  group_by(Regions,ES)%>%
+  summarize(mean=mean(Raw_Value,na.rm=TRUE))%>%
+  pivot_wider(id_cols=Regions,names_from=ES,values_from = mean)
+
+
+p_boxplot<- ES_Raw_df%>%
+  select(Regions,BioDiv,NurHab,BlueCar:Expos)%>%
+  mutate(Regions=ifelse(Regions==1,"2_Big_Bend",ifelse(Regions==2,"4_South",ifelse(Regions==4,"1_Panhandle","3_South_Central"))))%>%
+  pivot_longer(names_to = "ES",cols = BioDiv:Expos,values_to = "Raw_Value")%>%
+  # group_by(Regions,ES)%>%
+  ggplot(aes(x=Raw_Value,fill=Regions))+geom_histogram(position="stack")+facet_wrap(~ES,scales="free_y")
+
+
+```
+
+#Loading ES Outputs (Standarized)
+```{r}
+#loading ES maps
+BioDiv_EV=raster("input_data/ES-Model-Outputs/BioDiv_EV_Zscores_Confirmed.tif")
+NurHab_EV=raster("input_data/ES-Model-Outputs/NursHab_EV_Zscores_Confirmed.tif")
+Gray_Snapper_EV=raster("input_data/ES-Model-Outputs/Gray_Snapper_EV_Zscores_Confirmed.tif")
+Lane_Snapper_EV=raster("input_data/ES-Model-Outputs/Lane_Snapper_EV_Zscores_Confirmed.tif")
+White_Grunt_EV=raster("input_data/ES-Model-Outputs/White_Grunt_EV_Sscores_Confirmed.tif")
+Spotted_Seatrout_EV=raster("input_data/ES-Model-Outputs/Spotted_Seatrout_EV_Zscores_Confirmed.tif")
+Sheepshead_EV=raster("input_data/ES-Model-Outputs/Sheepshead_EV_Zscores_Confirmed.tif")
+Pink_Shrimp_EV=raster("input_data/ES-Model-Outputs/Pink_Shrimp_EV_Zscores_Confirmed.tif")
+BlueCar_EV=raster("input_data/ES-Model-Outputs/BC_Storage_EV_Zscores_Confirmed.tif")
+RecTour_EV=raster("input_data/ES-Model-Outputs/Rec_EV_Zscores_Confirmed.tif")
+Expos_EV=raster("input_data/ES-Model-Outputs/Exposure_EV_Zscores_Confirmed.tif")
+Pop_EV=raster("input_data/ES-Model-Outputs/Population_EV_Zscores_Confirmed.tif")
+
+ES_Zscores=stack(FCMap,Seagrass_Cover_Confirmed,BioDiv_EV,NurHab_EV,Gray_Snapper_EV,Lane_Snapper_EV,White_Grunt_EV,Spotted_Seatrout_EV,Sheepshead_EV,Pink_Shrimp_EV,BlueCar_EV,RecTour_EV,Expos_EV,Pop_EV)
+
+ES_Zscores=mask(ES_Zscores,mask=Confirmed)
+ES_Zscores_df=as.data.frame(rasterToPoints(ES_Zscores))
+names(ES_Zscores_df)<-c("x","y","Regions","Seagrass_Cover","BioDiv","NurHab","Gray_Snapper","Lane_Snapper","White_Grunt","Spotted_Seatrout","Sheepshead","Pink_Shrimp","BlueCar","RecTour","Expos","Pop")
+ES_Zscores_df<-ES_Zscores_df[complete.cases(ES_Zscores_df),]
+summary(ES_Zscores_df)
+```
+
+# Spatial overlap of hotspots
+```{r}
+ES_hotspots=raster("input_data/ES-Model-Outputs/ES_hotspots_Confirmed.tif")
+
+# Seagrass beds with zero ES hotspots ############################################################
+ES_hotspots0 <- ES_hotspots
+ES_hotspots0[ES_hotspots0 != 0] <- NA
+
+#calculate area
+#get sizes of all cells
+cell_size<-area(ES_hotspots0, na.rm=TRUE, weights=FALSE)
+
+#delete NAs from vector of all raster cells
+##NAs lie outside of the rastered region, can thus be omitted
+cell_size<-cell_size[!is.na(cell_size)]
+
+#compute area [km2] of all cells in geo_raster
+area_hotspots0<-length(cell_size)*median(cell_size)
+
+#print area
+print(paste("Area of seagrasses with 0 ES hotspots:",round(area_hotspots0, digits=1),"km2"))
+
+
+# Seagrass beds with 1 ES hotspots ############################################################
+ES_hotspots1 <- ES_hotspots
+ES_hotspots1[ES_hotspots1 != 1] <- NA
+
+#calculate area
+#get sizes of all cells
+cell_size<-area(ES_hotspots1, na.rm=TRUE, weights=FALSE)
+
+#delete NAs from vector of all raster cells
+##NAs lie outside of the rastered region, can thus be omitted
+cell_size<-cell_size[!is.na(cell_size)]
+
+#compute area [km2] of all cells in geo_raster
+area_hotspots1<-length(cell_size)*median(cell_size)
+
+#print area
+print(paste("Area of seagrasses with 1 ES hotspots:",round(area_hotspots1, digits=1),"km2"))
+
+# Seagrass beds with 2 ES hotspots ############################################################
+ES_hotspots2 <- ES_hotspots
+ES_hotspots2[ES_hotspots2 != 2] <- NA
+
+#calculate area
+#get sizes of all cells
+cell_size<-area(ES_hotspots2, na.rm=TRUE, weights=FALSE)
+
+#delete NAs from vector of all raster cells
+##NAs lie outside of the rastered region, can thus be omitted
+cell_size<-cell_size[!is.na(cell_size)]
+
+#compute area [km2] of all cells in geo_raster
+area_hotspots2<-length(cell_size)*median(cell_size)
+
+#print area
+print(paste("Area of seagrasses with 2 ES hotspots:",round(area_hotspots2, digits=1),"km2"))
+
+# Seagrass beds with 3 ES hotspots ############################################################
+ES_hotspots3 <- ES_hotspots
+ES_hotspots3[ES_hotspots3 != 3] <- NA
+
+#calculate area
+#get sizes of all cells
+cell_size<-area(ES_hotspots3, na.rm=TRUE, weights=FALSE)
+
+#delete NAs from vector of all raster cells
+##NAs lie outside of the rastered region, can thus be omitted
+cell_size<-cell_size[!is.na(cell_size)]
+
+#compute area [km2] of all cells in geo_raster
+area_hotspots3<-length(cell_size)*median(cell_size)
+
+#print area
+print(paste("Area of seagrasses with 3 ES hotspots:",round(area_hotspots3, digits=1),"km2"))
+
+# Seagrass beds with 4 ES hotspots ############################################################
+ES_hotspots4 <- ES_hotspots
+ES_hotspots4[ES_hotspots4 != 4] <- NA
+
+#calculate area
+#get sizes of all cells
+cell_size<-area(ES_hotspots4, na.rm=TRUE, weights=FALSE)
+
+#delete NAs from vector of all raster cells
+##NAs lie outside of the rastered region, can thus be omitted
+cell_size<-cell_size[!is.na(cell_size)]
+
+#compute area [km2] of all cells in geo_raster
+area_hotspots4<-length(cell_size)*median(cell_size)
+
+#print area
+print(paste("Area of seagrasses with 4 ES hotspots:",round(area_hotspots4, digits=1),"km2"))
+
+# Seagrass beds with 5 ES hotspots ############################################################
+ES_hotspots5 <- ES_hotspots
+ES_hotspots5[ES_hotspots5 != 5] <- NA
+
+#calculate area
+#get sizes of all cells
+cell_size<-area(ES_hotspots5, na.rm=TRUE, weights=FALSE)
+
+#delete NAs from vector of all raster cells
+##NAs lie outside of the rastered region, can thus be omitted
+cell_size<-cell_size[!is.na(cell_size)]
+
+#compute area [km2] of all cells in geo_raster
+area_hotspots5<-length(cell_size)*median(cell_size)
+
+#print area
+print(paste("Area of seagrasses with 5 ES hotspots:",round(area_hotspots5, digits=1),"km2"))
+
+
+# All confirmed seagrass beds ############################################################
+
+#calculate area
+#get sizes of all cells
+cell_size<-area(Confirmed, na.rm=TRUE, weights=FALSE)
+
+#delete NAs from vector of all raster cells
+##NAs lie outside of the rastered region, can thus be omitted
+cell_size<-cell_size[!is.na(cell_size)]
+
+#compute area [km2] of all cells in geo_raster
+Confirmed_area<-length(cell_size)*median(cell_size)
+
+#print area
+print(paste("Area of all seagrasses:",round(Confirmed_area, digits=1),"km2"))
+
+
+# Making a table
+
+ES_hotspot_area_table=as.data.frame(rbind(area_hotspots0, area_hotspots1, area_hotspots2,area_hotspots3, area_hotspots4, area_hotspots5))
+ES_hotspot_area_table$no_ES_hotspots<-0:5
+names(ES_hotspot_area_table)<-c("area_km2","no_ES_hotspots")
+rownames(ES_hotspot_area_table)<-NULL
+
+ES_hotspot_area_table=ES_hotspot_area_table%>%
+  select(no_ES_hotspots,area_km2)%>%
+  dplyr::mutate(area_ha=area_km2*100,percent_total=(area_ha/(Confirmed_area*100)*100))
+
+
+####################################################################################################################
+#Calculating % overlap
+BioDiv_Hotspot_1z=BioDiv_EV
+BioDiv_Hotspot_1z[BioDiv_Hotspot_1z<1]<-NA
+BioDiv_Hotspot_1z[BioDiv_Hotspot_1z>=1]<-1
+
+NurHab_EV_1z=NurHab_EV
+NurHab_EV_1z[NurHab_EV_1z<1]<-NA
+NurHab_EV_1z[NurHab_EV_1z>=1]<-1
+
+BlueCar_EV_1z=BlueCar_EV
+BlueCar_EV_1z[BlueCar_EV_1z<1]<-NA
+BlueCar_EV_1z[BlueCar_EV_1z>=1]<-1
+
+RecTour_EV_1z=RecTour_EV
+RecTour_EV_1z[RecTour_EV_1z<1]<-NA
+RecTour_EV_1z[RecTour_EV_1z>=1]<-1
+
+Expos_EV_1z=Expos_EV
+Expos_EV_1z[Expos_EV_1z<1]<-NA
+Expos_EV_1z[Expos_EV_1z>=1]<-1
+
+
+#Intersection 
+#biodiversity vs nursery
+Overlap_Bio_Nurs=BioDiv_Hotspot_1z+NurHab_EV_1z
+
+cell_size<-area(Overlap_Bio_Nurs, na.rm=TRUE, weights=FALSE)
+
+#delete NAs from vector of all raster cells
+##NAs lie outside of the rastered region, can thus be omitted
+cell_size<-cell_size[!is.na(cell_size)]
+
+#compute area [km2] of all cells in geo_raster
+area_hotspots5<-length(cell_size)*median(cell_size)
+
+```
+
+# Spatial Correlations (Standardized ES) 
+```{r}
+# pal <- choose_palette()
+
+##Pearson Correlations 
+ES_cors_df<-ES_Zscores_df
+
+names(ES_cors_df)<-c("Longitude","Latitude","Regions","Total Seagrass Cover","Biodiversity","Nursery Habitat","Gray Snapper","Lane Snapper","White Grunt","Spotted Seatrout","Sheepshead","Pink Shrimp","Blue Carbon","Recreation","Coastal Protection","Coastal Population")
+
+#main ecosystem services
+ES_cors<-round(cor(ES_cors_df[c(5:6,13:16)]),1)
+ES_cors<-round(cor(ES_cors_df[c(5:6,13:15)]),1)
+
+corrplot(ES_cors, type = 'lower', order = 'original', tl.col = 'black',
+          cl.ratio = 0.2, tl.srt = 45,
+         # col = diverge_hcl(8,h=c(180,290),l=c(40,95)),
+         col=viridis(8),
+         addCoef.col = 'black',diag=FALSE)
+#saving the output
+tiff("plots/Figure_3_RWB.tiff", units="in", width=5, height=5, res=300)
+
+corrplot(ES_cors, type = 'lower', order = 'original', tl.col = 'black',
+         cl.ratio = 0.2, tl.srt = 45, 
+                  # col=viridisviridis(8),
+        col= colorRampPalette(c("red","white","blue"))(10),
+         addCoef.col = 'black',diag=FALSE)
+
+dev.off()
+
+
+
+#expanded nursery habita tand other services
+ES_cors_expanded<-round(cor(ES_cors_df[c(5,7:15)]),2)
+
+#saving the output
+tiff("plots/Figure_S4.tiff", units="in", width=7, height=7, res=300)
+corrplot(ES_cors_expanded, type = 'lower', order = 'original', tl.col = 'black',
+         cl.ratio = 0.2, tl.srt = 45, col = diverge_hcl(8,h=c(190,290),l=c(40,95)),addCoef.col = 'black',diag=FALSE)
+dev.off()
+
+
+```
+
+# Individual Variation (Standardized ES)
+```{r}
+
+ES_Zscores_long_df<-ES_Zscores_df%>%
+  dplyr::select(Regions,BioDiv,NurHab,BlueCar:Expos)%>%
+  pivot_longer(cols=BioDiv:Expos,names_to="ES",values_to="ZScores")%>%
+  mutate(ES=factor(ES,levels=c("BioDiv","NurHab","BlueCar","RecTour","Expos"),labels=c("Biodiversity Enhancement","Nursery Habitat","Blue Carbon Storage","Recreational Use","Coastal Protection")))
+
+p1=ES_Zscores_long_df%>%
+  ggplot(aes(y=ZScores,x=ES,fill=ES),colour="black")+geom_violin(trim=FALSE) + geom_boxplot(width=0.1)+ xlab("Frequency of Value") + ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="none")+scale_fill_manual(values=pal_teal_blue_purple[c(7,8,9,11,12)]) +ylab("Ecosystem Service Value (Z-Score)")
+
+p1
+
+#saving the output
+tiff("plots/Figure_2.tiff", units="in", width=8, height=12, res=300)
+p1
+dev.off()
+
+```
+
+## seagrass cover level
+```{r}
+p1_cover_levels<-ES_Zscores_df%>%
+  mutate(cover_levels=ifelse(Seagrass_Cover>=75,"high",ifelse(Seagrass_Cover>=50 & Seagrass_Cover<75,"medium",ifelse(Seagrass_Cover>=25 & Seagrass_Cover<50,"low","sparse"))),cover_levels=factor(cover_levels,levels=c("high","medium","low","sparse")))%>%
+  dplyr::select(Regions,cover_levels,BioDiv,NurHab,BlueCar:Expos)%>%
+  pivot_longer(cols=BioDiv:Expos,names_to="ES",values_to="ZScores")%>%
+  mutate(ES=factor(ES,levels=c("BioDiv","NurHab","BlueCar","RecTour","Expos"),labels=c("Biodiversity Enhancement","Nursery Habitat","Blue Carbon Storage","Recreational Use","Coastal Protection")))%>%
+  ggplot(aes(y=ZScores,x=ES,fill=cover_levels))+geom_boxplot(position = "dodge") + xlab("Frequency of Value") + ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="none")+scale_fill_manual(values=pal_teal_blue_purple[c(7,8,9,11,12)]) +ylab("Ecosystem Service Value (Z-Score)")
+  
+
+```
+
+#regional plot - zscores
+```{r}
+ES_Zscores_regional_summary<-ES_Zscores_long_df%>%
+  group_by(Regions,ES)%>%
+  summarize(mean=mean(ZScores))
+
+p1_regions<- ES_Zscores_df%>%
+  select(Regions,BioDiv,NurHab,BlueCar:Expos)%>%
+  pivot_longer(names_to = "ES",cols = BioDiv:Expos,values_to = "Raw_Value")%>%
+    mutate(Regions=factor(Regions,levels=c(2,6,1,4),labels=c("South","Central","Big Bend","Panhandle")))%>%
+    mutate(ES=factor(ES,levels=c("BioDiv","NurHab","BlueCar","RecTour","Expos"),labels=c("BE","NHE","BCE","RE","CPE")))%>%
+  # group_by(Regions,ES)%>%
+  ggplot(aes(x=Raw_Value,y=(Regions),fill=(Regions)))+geom_boxplot()+ facet_wrap(~ES)+ geom_vline(xintercept = 0,color="grey50",size=1) + ylab("Ecosystem Services") + xlab("Standardized Enahancement Values (Z-Score)") + ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="none")+scale_fill_manual(values=pal_teal_blue_purple[c(7,8,10,11)]) 
+
+#saving the output
+tiff("plots/Figure_region_boxplots.tiff", units="in", width=8, height=6, res=300)
+p1_regions
+dev.off()
+
+```
+
+#regional plot - correlations
+```{r}
+#Pandhandle 
+ES_cors_Panhandle_df<-ES_Zscores_df%>%
+  mutate(Regions=factor(Regions,levels=c(2,6,1,4),labels=c("South","Central","Big Bend","Panhandle")))%>%
+  filter(Regions=="Panhandle")
+
+names(ES_cors_Panhandle_df)<-c("Longitude","Latitude","Regions","Total Seagrass Cover","Biodiversity","Nursery Habitat","Gray Snapper","Lane Snapper","White Grunt","Spotted Seatrout","Sheepshead","Pink Shrimp","Blue Carbon","Recreation","Coastal Protection","Coastal Population")
+
+#main ecosystem services
+ES_cors_Panhandle<-round(cor(ES_cors_Panhandle_df[c(5:6,13:15)]),1)
+
+
+corrplot(ES_cors_Panhandle,  type = 'lower', order = 'original', tl.col = 'black',
+         cl.ratio = 0.2, tl.srt = 45, col = diverge_hcl(8,h=c(190,290),l=c(40,95)),addCoef.col = 'black',diag=FALSE)
+
+
+#saving the output
+tiff("plots/Figure_4_panhandle.tiff", units="in", width=5, height=5, res=300)
+corrplot(ES_cors_Panhandle, type = 'lower', order = 'original', tl.col = 'black',
+         cl.ratio = 0.2, tl.srt = 45, col = diverge_hcl(8,h=c(190,290),l=c(40,95)),addCoef.col = 'black',diag=FALSE)
+
+
+# Big Bend
+ES_cors_Big_Bend_df<-ES_Zscores_df%>%
+  mutate(Regions=factor(Regions,levels=c(2,6,1,4),labels=c("South","Central","Big Bend","Panhandle")))%>%
+  filter(Regions=="Big Bend")
+
+names(ES_cors_Big_Bend_df)<-c("Longitude","Latitude","Regions","Total Seagrass Cover","Biodiversity","Nursery Habitat","Gray Snapper","Lane Snapper","White Grunt","Spotted Seatrout","Sheepshead","Pink Shrimp","Blue Carbon","Recreation","Coastal Protection","Coastal Population")
+
+#main ecosystem services
+ES_cors_Big_Bend<-round(cor(ES_cors_Big_Bend_df[c(5:6,13:15)]),1)
+
+
+corrplot(ES_cors_Big_Bend, type = 'lower', order = 'original', tl.col = 'black',
+         cl.ratio = 0.2, tl.srt = 45, col = diverge_hcl(8,h=c(190,290),l=c(40,95)),addCoef.col = 'black',diag=FALSE)
+
+#saving the output
+tiff("plots/Figure_4_big_bend.tiff", units="in", width=5, height=5, res=300)
+corrplot(ES_cors_Big_Bend, type = 'lower', order = 'original', tl.col = 'black',
+         cl.ratio = 0.2, tl.srt = 45, col = diverge_hcl(8,h=c(190,290),l=c(40,95)),addCoef.col = 'black',diag=FALSE)
+dev.off()
+
+
+# Central Florida
+ES_cors_Central_df<-ES_Zscores_df%>%
+  mutate(Regions=factor(Regions,levels=c(2,6,1,4),labels=c("South","Central","Big Bend","Panhandle")))%>%
+  filter(Regions=="Central")
+
+names(ES_cors_Central_df)<-c("Longitude","Latitude","Regions","Total Seagrass Cover","Biodiversity","Nursery Habitat","Gray Snapper","Lane Snapper","White Grunt","Spotted Seatrout","Sheepshead","Pink Shrimp","Blue Carbon","Recreation","Coastal Protection","Coastal Population")
+
+#main ecosystem services
+ES_cors_Central<-round(cor(ES_cors_Central_df[c(5:6,13:15)]),1)
+
+
+corrplot(ES_cors_Central, type = 'lower', order = 'original', tl.col = 'black',
+         cl.ratio = 0.2, tl.srt = 45, col = diverge_hcl(8,h=c(190,290),l=c(40,95)),addCoef.col = 'black',diag=FALSE)
+
+#saving the output
+tiff("plots/Figure_4_central.tiff", units="in", width=5, height=5, res=300)
+corrplot(ES_cors_Central, type = 'lower', order = 'original', tl.col = 'black',
+         cl.ratio = 0.2, tl.srt = 45, col = diverge_hcl(8,h=c(190,290),l=c(40,95)),addCoef.col = 'black',diag=FALSE)
+dev.off()
+
+#South Florida
+ES_cors_South_df<-ES_Zscores_df%>%
+  mutate(Regions=factor(Regions,levels=c(2,6,1,4),labels=c("South","Central","Big Bend","Panhandle")))%>%
+  filter(Regions=="South")
+
+names(ES_cors_South_df)<-c("Longitude","Latitude","Regions","Total Seagrass Cover","Biodiversity","Nursery Habitat","Gray Snapper","Lane Snapper","White Grunt","Spotted Seatrout","Sheepshead","Pink Shrimp","Blue Carbon","Recreation","Coastal Protection","Coastal Population")
+
+#main ecosystem services
+ES_cors_South<-round(cor(ES_cors_South_df[c(5:6,13:15)]),1)
+
+
+corrplot(ES_cors_South, type = 'lower', order = 'original', tl.col = 'black',
+         cl.ratio = 0.2, tl.srt = 45, col = diverge_hcl(8,h=c(190,290),l=c(40,95)),addCoef.col = 'black',diag=FALSE)
+
+#saving the output
+tiff("plots/Figure_4_south.tiff", units="in", width=5, height=5, res=300)
+corrplot(ES_cors_South, type = 'lower', order = 'original', tl.col = 'black',
+         cl.ratio = 0.2, tl.srt = 45, col = diverge_hcl(8,h=c(190,290),l=c(40,95)),addCoef.col = 'black',diag=FALSE)
+dev.off()
+
+```
+
+# Plotting relationships among ES
+```{r}
+library(paletteer); library(colorBlindness)
+
+ES_Zscores_df_X=sample_n(ES_Zscores_df, 50000)
+
+# Biodiversity and Nursery Habitat
+p2=ES_Zscores_df_X%>%
+  mutate(BioDiv=round(BioDiv,1),NurHab=round(NurHab,1))%>%
+    ggplot(aes(y=BioDiv, x=NurHab, fill=stat(count)*93^2*0.0001))+ 
+  labs(fill="Hectares")+ geom_hex(bins=5,color="black",
+                                  limts=c(0,6000)) + 
+  ggtitle("") + 
+  theme_classic(base_size = 16, base_family = "Calibri")+
+  theme(legend.position="right") +ylab("Biodiversity Enhancment") +
+  xlab("Nursery Habitat")+
+  scale_fill_distiller(palette = "BuPu",direction = 1)+ 
+  geom_hline(yintercept = 0, colour="#FF6600", linetype="dashed",size=1)+
+  geom_vline(xintercept = 0, colour="#FF6600", linetype="dashed",size=1) 
+
+# Biodiversity and Carbon Storage
+p3=ES_Zscores_df_X%>%
+  mutate(BioDiv=round(BioDiv,1),BlueCar=round(BlueCar,1))%>%
+    ggplot(aes(y=BioDiv, x=BlueCar, fill=stat(count)*93^2*0.0001))+ 
+  labs(fill="Hectares")+ geom_hex(bins=5,color="black",
+                                  limts=c(0,6000)) + 
+                                    ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="right") +ylab("Biodiversity Enhancment") + xlab("Blue Carbon Storage")+scale_fill_distiller(palette = "BuPu",direction = 1)+ geom_hline(yintercept = 0, colour="#FF6600", linetype="dashed",size=1)+geom_vline(xintercept = 0, colour="#FF6600", linetype="dashed",size=1)
+
+# Biodiversity and Recreation
+p4=ES_Zscores_df_X%>%
+  mutate(BioDiv=round(BioDiv,1),RecTour=round(RecTour,1))%>%
+    ggplot(aes(y=BioDiv, x=RecTour, fill=stat(count)*93^2*0.0001))+  labs(fill="Hectares")+
+  geom_hex(bins=5,color="black",
+                                  limts=c(0,6000)) + ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="right") +ylab("Biodiversity Enhancment") + xlab("Recreational Use")+scale_fill_distiller(palette = "BuPu",direction = 1)+geom_hline(yintercept = 0, colour="#FF6600", linetype="dashed",size=1)+geom_vline(xintercept = 0, colour="#FF6600", linetype="dashed",size=1)
+
+# Biodiversity and Coastal Protection
+p5=ES_Zscores_df_X%>%
+  mutate(BioDiv=round(BioDiv,1),Expos=round(Expos,1))%>%
+    ggplot(aes(y=BioDiv, x=Expos, fill=stat(count)*93^2*0.0001))+ labs(fill="Hectares")+ geom_hex(bins=5,color="black",
+                                  limts=c(0,6000))+ ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="right") +ylab("Biodiversity Enhancment") + xlab("Coastal Protection")+scale_fill_distiller(palette = "BuPu",direction = 1)+geom_hline(yintercept = 0, colour="#FF6600", linetype="dashed",size=1)+geom_vline(xintercept = 0, colour="#FF6600", linetype="dashed",size=1)
+
+# Nursery Habitat and Carbon Storage
+p6=ES_Zscores_df_X%>%
+    mutate(NurHab=round(NurHab,1),BlueCar=round(BlueCar,1))%>%
+    ggplot(aes(y=NurHab, x=BlueCar, fill=stat(count)*93^2*0.0001))+ 
+  labs(fill="Hectares")+ geom_hex(bins=5,color="black",
+                                  limts=c(0,6000)) +  ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="right") +xlab("Blue Carbon Storage") + ylab("Nursery Habitat")+scale_fill_distiller(palette = "BuPu",direction = 1)+geom_hline(yintercept = 0, colour="#FF6600", linetype="dashed",size=1)+geom_vline(xintercept = 0, colour="#FF6600", linetype="dashed",size=1)
+
+# Nursery Habitat and Recreation
+p7=ES_Zscores_df_X%>%
+    mutate(NurHab=round(NurHab,1),RecTour=round(RecTour,1))%>%
+    ggplot(aes(y=NurHab, x=RecTour, fill=stat(count)*93^2*0.0001))+ 
+  labs(fill="Hectares")+ geom_hex(bins=5,color="black",
+                                  limts=c(0,6000)) +   ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="right") +xlab("Recreational Use") + ylab("Nursery Habitat")+scale_fill_distiller(palette = "BuPu",direction = 1)+ geom_hline(yintercept = 0, colour="#FF6600", linetype="dashed",size=1)+geom_vline(xintercept = 0, colour="#FF6600", linetype="dashed",size=1)
+
+# Nursery Habitat and Coastal Protection
+p8=ES_Zscores_df_X%>%
+    mutate(NurHab=round(NurHab,1),Expos=round(Expos,1))%>%
+    ggplot(aes(y=NurHab, x=Expos, fill=stat(count)*93^2*0.0001))+ labs(fill="Hectares")+ geom_hex(bins=5,color="black",
+                                  limts=c(0,6000)) + ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="right") +xlab("Coastal Protection") + ylab("Nursery Habitat")+scale_fill_distiller(palette = "BuPu",direction = 1)+ geom_hline(yintercept = 0, colour="#FF6600", linetype="dashed",size=1)+geom_vline(xintercept = 0, colour="#FF6600", linetype="dashed",size=1)
+
+# Carbon Storage and Recreation 
+p9=ES_Zscores_df_X%>%
+    mutate(RecTour=round(RecTour,1),BlueCar=round(BlueCar,1))%>%
+    ggplot(aes(y=BlueCar, x=RecTour,fill=stat(count)*93^2*0.0001))+  labs(fill="Hectares")+ geom_hex(bins=5,color="black",
+                                  limts=c(0,6000)) +  ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="right") +ylab("Blue Carbon Storage") + xlab("Recreational Use")+scale_fill_distiller(palette = "BuPu",direction = 1)+geom_hline(yintercept = 0, colour="#FF6600", linetype="dashed",size=1)+geom_vline(xintercept = 0, colour="#FF6600", linetype="dashed",size=1)
+
+# Carbon Storage and Coastal Protection 
+p10=ES_Zscores_df_X%>%
+    mutate(RecTour=round(RecTour,1),Expos=round(Expos,1))%>%
+    ggplot(aes(y=BlueCar, x=Expos,fill=stat(count)*93^2*0.0001))+ labs(fill="Hectares")+ geom_hex(bins=5,color="black",
+                                  limts=c(0,6000)) +  ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="right") +ylab("Blue Carbon Storage") + xlab("Coastal Protection")+ scale_fill_distiller(palette = "BuPu",direction = 1)+ geom_hline(yintercept = 0, colour="#FF6600", linetype="dashed",size=1)+geom_vline(xintercept = 0, colour="#FF6600", linetype="dashed",size=1)
+# Recreation and Coastal Protection 
+
+#blank
+blank=ES_Zscores_df_X%>%
+    ggplot(aes(y=NurHab, x=Expos))+xlab("")+ylab("")+theme(axis.line=element_blank(),axis.text.x=element_blank(),
+          axis.text.y=element_blank(),axis.ticks=element_blank(),
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank(),legend.position="none",
+          panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),plot.background=element_blank())
+#saving the output
+tiff("plots/Figure_3a.tiff", units="in", width=16, height=3, res=300)
+ggarrange(p2,p3,p4,p5,nrow = 1, ncol=4, widths = c(2,2,2,2),heights = c(1,1,1,1))
+dev.off()
+
+tiff("plots/Figure_3b.tiff", units="in", width=16, height=3, res=300)
+ggarrange(blank,p6,p7,p8,nrow = 1, ncol=4,widths = c(2,2,2,2),heights = c(1,1,1,1))
+
+tiff("plots/Figure_3c.tiff", units="in", width=16, height=3, res=300)
+ggarrange(blank,blank,p9,p10,nrow = 1, ncol=4, widths = c(2,2,2,2),heights = c(1,1,1,1))
+dev.off()
+```
+
+# Accessibility figure 
+```{r}
+# Biodiversity and Population
+p11=ES_Zscores_df_X%>%
+  mutate(BioDiv=round(BioDiv,1),Pop=round(Pop,1))%>%
+    ggplot(aes(y=BioDiv, x=Pop))+  geom_hex(bins=5,color="white")  + ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="none") +ylab("Biodiversity Enhancment (z-scores)") + xlab("Coastal Population (z-scores)")+scale_fill_viridis_c()+ geom_hline(yintercept = 0, colour="#FF6600", linetype="dashed",size=1)+geom_vline(xintercept = 0, colour="#FF6600", linetype="dashed",size=1)
+
+# Carbon Storage and Population
+p12=ES_Zscores_df_X%>%
+  mutate(NurHab=round(NurHab,1),Pop=round(Pop,1))%>%
+    ggplot(aes(y=NurHab, x=Pop))+  geom_hex(bins=5,color="white")  + ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="none") +ylab("Nursery Habitat (z-scores)")+xlab("Coastal Population (z-scores)")+scale_fill_viridis_c()+ geom_hline(yintercept = 0, colour="#FF6600", linetype="dashed",size=1)+geom_vline(xintercept = 0, colour="#FF6600", linetype="dashed",size=1)
+
+# Carbon Storage and Population
+p13=ES_Zscores_df_X%>%
+  mutate(BlueCar=round(BlueCar,1),Pop=round(Pop,1))%>%
+    ggplot(aes(y=BlueCar, x=Pop))+  geom_hex(bins=5,color="white")  + ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="none") +ylab("Blue Carbon Storage (z-scores)")+xlab("Coastal Population (z-scores)")+scale_fill_viridis_c()+ geom_hline(yintercept = 0, colour="#FF6600", linetype="dashed",size=1)+geom_vline(xintercept = 0, colour="#FF6600", linetype="dashed",size=1)
+
+#  Recreation and Population 
+p14=ES_Zscores_df_X%>%
+  mutate(RecTour=round(RecTour,1),Pop=round(Pop,1))%>%
+    ggplot(aes(y=RecTour, x=Pop))+  geom_hex(bins=5,color="white")  + ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="none") +ylab("Recreational Use (z-scores)")+xlab("Coastal Population (z-scores)")+scale_fill_viridis_c()+ geom_hline(yintercept = 0, colour="#FF6600", linetype="dashed",size=1)+geom_vline(xintercept = 0, colour="#FF6600", linetype="dashed",size=1)
+
+# Biodiversity and Coastal Protection
+p15=ES_Zscores_df_X%>%
+  mutate(Expos=round(Expos,1),Pop=round(Pop,1))%>%
+    ggplot(aes(y=Expos, x=Pop))+  geom_hex(bins=5,color="white")  + ggtitle("") + theme_classic(base_size = 16, base_family = "Calibri")+theme(legend.position="none") +ylab("Coastal Protection (z-scores)")+xlab("Coastal Population (z-scores)")+scale_fill_viridis_c()+ geom_hline(yintercept = 0, colour="#FF6600", linetype="dashed",size=1)+geom_vline(xintercept = 0, colour="#FF6600", linetype="dashed",size=1)
+
+ggarrange(p11,p12,p13,p14,p15,nrow = 1, ncol=5, widths = c(1,1,1,1,1))
+
+```
+
+
+# Appendicies for individual model output
+# Nursery Habitat Models Figure S2
+```{r warning=FALSE}
+data=read.csv(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/data/FIM_Final_NurserySpecies_1997_2017_wideform_meancovaraites_QAQC.csv",sep=""))
+
+data=data%>%
+  filter(Gear_Type=="SmallSeine" | Gear_Type=="OtterTrawl")%>%
+  mutate(TH_PA=as.factor(TH_PA),SY_PA=as.factor(SY_PA),HA_PA=as.factor(HA_PA),Seagrass_PA=as.factor(Seagrass_PA),ST_Mangroves=as.factor(ST_Mangroves),ST_Oysters=as.factor(ST_Oysters),Mud=as.factor(Mud),Sand=as.factor(Sand),Rocks=as.factor(Rocks),Gear_Type=as.factor(Gear_Type))
+
+purples_colors <- brewer.pal(9, "PuRd") %>%
+  colorRampPalette()
+
+
+#Pink Shrimp
+pink_shrimp=readRDS(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_versions/nursery_habitat_final_models/Pink_Shrimp_binomial_gam.rds",sep=""))
+
+pdf(file="plots/Partial_Response_Curves_Pink_Shrimp.pdf",onefile=T,width=6,height=6,pointsize=9)
+par(mfrow=c(3,3),mai = c(0.5, 0.25, 0.25, 0.1));
+plot.gam(pink_shrimp,shade=TRUE,shade.col="pink",scheme=2,trans=odds_to_prob,all.terms=TRUE,hcolors=purples_colors(20),too.far = 0.1)
+dev.off()
+
+
+# Spotted Seatrout
+spotted_seatrout=readRDS(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_versions/nursery_habitat_final_models/Spotted_Seatrout_binomial_gam.rds",sep=""))
+
+pdf(file="plots/Partial_Response_Curves_Spooted_Seatrout.pdf",onefile=T,width=6,height=6,pointsize=9)
+par(mfrow=c(3,3),mai = c(0.5, 0.25, 0.25, 0.25));
+plot.gam(spotted_seatrout,shade=TRUE,shade.col="pink",scheme=2,trans=odds_to_prob,all.terms=TRUE,hcolors=purples_colors(20),too.far = 0.1)
+dev.off()
+
+
+#Gray Snapper
+gray_snapper=readRDS(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_versions/nursery_habitat_final_models/Gray_Snapper_binomial_gam.rds",sep=""))
+
+pdf(file="plots/Partial_Response_Curves_Gray_Snapper.pdf",onefile=T,width=6,height=6,pointsize=9)
+par(mfrow=c(3,3),mai = c(0.5, 0.25, 0.25, 0.25));
+plot.gam(gray_snapper,shade=TRUE,shade.col="pink",scheme=2,trans=odds_to_prob,all.terms=TRUE,hcolors=purples_colors(20),too.far = 0.1)
+dev.off()
+
+# Lane Snapper
+lane_snapper=readRDS(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_versions/nursery_habitat_final_models/Lane_Snapper_binomial_gam.rds",sep=""))
+
+pdf(file="plots/Partial_Response_Curves_Lane_Snapper.pdf",onefile=T,width=6,height=6,pointsize=9)
+par(mfrow=c(3,3),mai = c(0.5, 0.25, 0.25, 0.25));
+plot.gam(lane_snapper,shade=TRUE,shade.col="pink",scheme=2,trans=odds_to_prob,all.terms=TRUE,hcolors=purples_colors(20),too.far = 0.1)
+dev.off()
+
+#White Grunt
+white_grunt=readRDS(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_versions/nursery_habitat_final_models/WhiteGrunt_binomial_gam.rds",sep=""))
+
+pdf(file="plots/Partial_Response_Curves_White_Grunt.pdf",onefile=T,width=6,height=6,pointsize=9)
+par(mfrow=c(3,3),mai = c(0.5, 0.25, 0.25, 0.25));
+plot.gam(white_grunt,shade=TRUE,shade.col="pink",scheme=2,trans=odds_to_prob,all.terms=TRUE,hcolors=purples_colors(20),too.far = 0.1)
+dev.off()
+
+sheepshead=readRDS(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_versions/nursery_habitat_final_models/Sheepshead_binomial_gam.rds",sep=""))
+
+pdf(file="plots/Partial_Response_Curves_Sheepshead.pdf",onefile=T,width=6,height=6,pointsize=9)
+par(mfrow=c(3,3),mai = c(0.5, 0.25, 0.25, 0.25));
+plot.gam(sheepshead,shade=TRUE,shade.col="pink",scheme=2,trans=odds_to_prob,all.terms=TRUE,hcolors=purples_colors(20),too.far = 0.1)
+dev.off()
+
+```
+# Blue Carbon Figure S3
+```{r warning=FALSE}
+#loading the modelg datasets
+load(file=paste(Saved_RData_Dir,"Saved_RData/Blue_Carbon_Modeling_FALL2021_Shallow_FINAL.RData",sep=""))
+
+rm(list= ls()[!(ls() %in% c("Saved_RData_Dir",
+                            "Shallow_BlueCarbon_QAQC_Site_Level_By_DepthBin_ALLCORES",
+                            "Total_Predicted_Seagrass", "Confirmed", "Unconfirmed",
+                            "pal_teal_blue_purple","fl_shoreline","Atlantic_Mask"))])
+
+organic_carbon_stock_ALLCORES=readRDS(paste(Saved_RData_Dir,"Modeling-Blue-Carbon-Storage-in-FLSeagrassBeds/model_versions/carbon_final_models/Organic_Carbon_Stock_SL_shallow_GAM_ALLCORES.rds",sep=""))
+
+p1= pdp::partial(object=organic_carbon_stock_ALLCORES, pred.var = c("total_seagrass_cover"),plot.engine = "ggplot2",plot=TRUE,rug=TRUE, smooth=TRUE) +  xlab("Total Seagrass Cover (%)") +theme_classic(base_size = 16, base_family = "Calibri") +ylim(7,16) +ggtitle("a.")
+
+p2=pdp::partial(object=organic_carbon_stock_ALLCORES, pred.var = c("percent_silt"),plot.engine = "ggplot2",plot=TRUE,rug=TRUE, smooth=TRUE) +xlab("Silt Content (%)")+theme_classic(base_size = 16, base_family = "Calibri")+ylim(7,16)
+
+p3=pdp::partial(object=organic_carbon_stock_ALLCORES, pred.var = c("Dist_To_OysterReefs_km"), plot=TRUE, smooth=TRUE,rug=TRUE,plot.engine = "ggplot2")+ xlab("Distance to Oyster Reefs (km)") + theme_classic(base_size = 16, base_family = "Calibri")+ylim(7,16) 
+
+
+#Figure 2
+ggarrange(p1,p2,p3,nrow=1,ncol=3)
+
+#saving the output
+tiff("plots/Figure_S3.tiff", units="in", width=11, height=3, res=300)
+ggarrange(p1,p2,p3,nrow=1,ncol=3)
+dev.off()
+
+```
+
+
+```{r warning=FALSE}
+purples_colors <- brewer.pal(9, "PuRd") %>%
+  colorRampPalette()
+
+final_recreation_model_gam=readRDS("model_versions/PUD_recreation_model_final.rds")
+PUD_predictors_long=read.csv(file="model_versions/Flicker_PUD_raw_Predictors_long.csv")
+
+pdf(file="plots/Partial_Response_Curves_Coastal_Visitation.pdf",onefile=T,width=6,height=6,pointsize=9)
+par(mfrow=c(3,3),mai = c(0.5, 0.25, 0.25, 0.25));
+plot.gam(final_recreation_model_gam,shade=TRUE,shift=coef(final_recreation_model_gam)[1],trans=exp,shade.col="pink",scheme=2,all.terms=TRUE,hcolors=purples_colors(20),too.far = 0.1)
+dev.off()
+
+```

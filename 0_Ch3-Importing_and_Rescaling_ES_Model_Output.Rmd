@@ -1,0 +1,749 @@
+---
+title: "0-Importing_Rescaling_ES_Outputs"
+author: "Jenn_McHenry"
+date: "03/21/2022"
+output: html_document
+---
+
+# Script Purpose
+
+This script was written with the intention of loading, manipulating, and rescaling the outputs of my ecosystem service models for further analysis. This is part of my dissertation work on marine ecosystem services from seagrasses in Florida. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(virtualspecies)
+library(rgeos)
+library(spatialEco)
+library(climateStability)
+library(RStoolbox)
+library(sdmvspecies)
+library(dplyr)
+
+wd=getwd()
+
+username=as.vector(strsplit(wd,"/"));names(username)<-c("username")
+
+Saved_RData_Dir=paste("C:/Users/",username$username[3],"/Dropbox/GITHUB/Disseratation/",sep="")
+
+```
+
+#loading masking and spatial domain data
+```{r}
+memory.limit(40000)
+
+#Seagrass cover
+Seagrass_Cover=raster(paste(Saved_RData_Dir,"Modeling_Biodiversity_Enhancement_Value/model_output/August_2020_seagrassmodel_predictions/Annual_Predictions/Seagrass_Cover_MeanAnnual_Current_Corrected_CorExp.tif",sep=""))
+names(Seagrass_Cover)<-c("Seagrass_Cover")
+
+#Total Predicted_Seagrass
+Total_Predicted_Seagrass=Seagrass_Cover
+Total_Predicted_Seagrass[Total_Predicted_Seagrass<5]<-NA
+Total_Predicted_Seagrass[Total_Predicted_Seagrass>=5]<-0
+
+#florida shoreline
+fl_shoreline=sf::read_sf("input_data/FL_shoreline.shp")
+
+
+# Study area
+study_area<-raster(paste(Saved_RData_Dir,"Modeling-Blue-Carbon-Storage-in-FLSeagrassBeds/data/FourMeter_Depth_Zone.tif",sep=""))
+study_area[study_area <0] <- 0
+
+#loading data masks
+Miami_Mask=raster("input_data/Miami_Mask_rs.tif")
+Miami_Mask_Mask=resample(x=Miami_Mask,y = study_area)
+
+Dry_Tortugas_Mask=raster("input_data/Miami_DryTortugas_Mask_rs.tif")
+Dry_Tortugas_Mask=resample(x=Dry_Tortugas_Mask,y = study_area)
+
+study_area=mask(study_area,mask= Miami_Mask_Mask, inverse=TRUE,updatevalue=NA)
+study_area=mask(study_area,mask= Dry_Tortugas_Mask, inverse=TRUE,updatevalue=NA)
+# writeRaster(study_area,filename = "input_data/study_area.tif",overwrite=TRUE)
+
+#Confirmed Seagrass Areas
+Confirmed=raster("input_data/seagrass_area_masks/confirmed_seagrass_beds.tif")
+#Unconfirmed Seagrass Areas
+Unconfirmed=raster("input_data/seagrass_area_masks/potential_recovery_area.tif")
+
+#masking the seagrass datasets
+Total_Predicted_Seagrass=mask(Total_Predicted_Seagrass,mask = study_area)
+
+Confirmed=mask(Confirmed,mask = study_area)
+
+Unconfirmed=mask(Unconfirmed,mask = study_area)
+
+#loading the depth layer
+Depth<-raster(paste(Saved_RData_Dir,"Large_Project_DataSets/BioOracle/data_output/Depth.tif",sep=""))
+
+#making depth range layers
+shallow<-Depth
+shallow[shallow > 0]<-NA
+shallow[shallow < -2]<-NA
+shallow=mask(shallow,mask = study_area)
+
+rs_stack_study_region_inshore_grid=raster::stack(paste(Saved_RData_Dir,"Large_Project_DataSets/Predictors_Inshore_Raster_Stack/Predictors_Inshore_Raster_Stack.grd",sep=""))
+names(rs_stack_study_region_inshore_grid)
+
+mask_0.50km<-rs_stack_study_region_inshore_grid$Dist_To_Shore
+mask_0.50km[mask_0.50km> 0.5]<-NA
+mask_0.50km[mask_0.50km <= 0.5]<-1
+
+# plot(shallow)
+
+#creatinga  correction factor for the biodiversity data
+deep<-Depth
+deep[deep >= -2]<-NA
+deep[deep < -4]<-NA
+deep=mask(deep,mask = study_area)
+
+# plot(deep)
+
+overlap<-Depth
+overlap[overlap >= -1]<-NA
+overlap[overlap < -3]<-NA
+overlap=mask(overlap,mask = study_area)
+```
+
+#Developing a relationship between shallow and deep water biodiversity
+```{r}
+# 
+# BioDiv_SW_SAV<-raster(paste(Saved_RData_Dir,"Modeling_Biodiversity_Enhancement_Value/model_output/August_2020_seagrassmodel_predictions/Annual_Predictions/Hill0_Seines_MeanAnnual_SAV_Current.tif",sep=""))
+# BioDiv_DW_SAV<-raster(paste(Saved_RData_Dir,"Modeling_Biodiversity_Enhancement_Value/model_output/August_2020_seagrassmodel_predictions/Annual_Predictions/Hill0_Otters_MeanAnnual_SAV_Current.tif",sep=""))
+
+# BioDiv_SW_SAV_overlap<-mask(BioDiv_SW_SAV,mask=overlap)
+# BioDiv_DW_SAV_overlap<-mask(BioDiv_DW_SAV,mask=overlap)
+# # #extracting the relationship between datasets
+# LM=stack(BioDiv_SW_SAV,BioDiv_DW_SAV)
+# LM_df=as.data.frame(rasterToPoints(LM))
+# LM_df<-LM_df[complete.cases(LM_df),]
+# names(LM_df)<-c("x","y","SW_Biodiv","DW_Biodiv")
+# # 
+# lm_biodiv=lm(DW_Biodiv~SW_Biodiv,LM_df)
+# summary(lm_biodiv)
+# lm_biodiv # DW Biodiversity = 1.09 &  SW Biodiversity +1.75
+
+
+```
+
+
+#prepping Biodiversity EV datasets
+```{r}
+#Loading data
+#Shallow Water Biodiversity Predictions
+BioDiv_SW_SAV<-raster(paste(Saved_RData_Dir,"Modeling_Biodiversity_Enhancement_Value/model_output/August_2020_seagrassmodel_predictions/Annual_Predictions/Hill0_Seines_MeanAnnual_SAV_Current.tif",sep=""))
+
+BioDiv_SW_SAV[Seagrass_Cover<5]<- -999 ## I am doing this to replace values later with those that have less than 5% seagrass 
+
+BioDiv_SW_SAV=mask(round(BioDiv_SW_SAV),mask=shallow)
+
+BioDiv_SW_SAV_df=as.data.frame(rasterToPoints(BioDiv_SW_SAV))
+summary(BioDiv_SW_SAV_df)
+
+
+BioDiv_SW_NOSAV<-raster(paste(Saved_RData_Dir,"Modeling_Biodiversity_Enhancement_Value/model_output/August_2020_seagrassmodel_predictions/Annual_Predictions/Hill0_Seines_MeanAnnual_NOSAV_Current.tif",sep=""))
+
+BioDiv_SW_NOSAV=mask(BioDiv_SW_NOSAV,mask=shallow)
+
+BioDiv_SW_NOSAV_df=as.data.frame(rasterToPoints(BioDiv_SW_NOSAV))
+
+#REPLACING THE VALUES OF HILL0 WHERE SEAGRASS IS LESS THAN 5% WITH THOSE FROM THE NOSAV PREDICTIONS
+BioDiv_SW_SAV_df=plyr::join(BioDiv_SW_SAV_df,BioDiv_SW_NOSAV_df,by=c("x","y"))
+
+names(BioDiv_SW_SAV_df)<-c("x","y","layer","NOSAV")
+
+BioDiv_SW_SAV_df<-BioDiv_SW_SAV_df%>%
+    mutate(layer=ifelse(layer== -999,NOSAV,layer))%>%
+    select(-NOSAV)
+
+# Converting dataframe back to a raster
+BioDiv_SW_SAV=rasterize(BioDiv_SW_SAV_df[1:2],study_area,BioDiv_SW_SAV_df[3],fun=sum)
+
+
+#Deep Water Biodiversity Predictions
+BioDiv_DW_SAV<-raster(paste(Saved_RData_Dir,"Modeling_Biodiversity_Enhancement_Value/model_output/August_2020_seagrassmodel_predictions/Annual_Predictions/Hill0_Otters_MeanAnnual_SAV_Current.tif",sep=""))
+
+BioDiv_DW_SAV[Seagrass_Cover<5]<- -999 ## I am doing this to replace values later with those that have less than 5% seagrass 
+
+BioDiv_DW_SAV=mask(round(BioDiv_DW_SAV),mask=deep)
+
+BioDiv_DW_SAV_df=as.data.frame(rasterToPoints(BioDiv_DW_SAV))
+summary(BioDiv_DW_SAV_df)
+
+BioDiv_DW_NOSAV<-raster(paste(Saved_RData_Dir,"Modeling_Biodiversity_Enhancement_Value/model_output/August_2020_seagrassmodel_predictions/Annual_Predictions/Hill0_Otters_MeanAnnual_NOSAV_Current.tif",sep=""))
+
+BioDiv_DW_NOSAV=mask(BioDiv_DW_NOSAV,mask=deep)
+
+BioDiv_DW_NOSAV_df=as.data.frame(rasterToPoints(BioDiv_DW_NOSAV))
+
+#REPLACING THE VALUES OF HILL0 WHERE SEAGRASS IS LESS THAN 5% WITH THOSE FROM THE NOSAV PREDICTIONS
+BioDiv_DW_SAV_df=plyr::join(BioDiv_DW_SAV_df,BioDiv_DW_NOSAV_df,by=c("x","y"))
+
+names(BioDiv_DW_SAV_df)<-c("x","y","layer","NOSAV")
+
+BioDiv_DW_SAV_df<-BioDiv_DW_SAV_df%>%
+    mutate(layer=ifelse(layer== -999,NOSAV,layer))%>%
+    select(-NOSAV)
+
+# Converting dataframe back to a raster
+BioDiv_DW_SAV=rasterize(BioDiv_DW_SAV_df[1:2],study_area,BioDiv_DW_SAV_df[3],fun=sum)
+
+#Correcting SH Biodiversity
+# BioDiv_SW_SAV_corrected=(BioDiv_SW_SAV*1.1)+1.75
+# BioDiv_SW_NOSAV_corrected=(BioDiv_SW_NOSAV*1.1)+1.75
+
+#Raw Shallow Water Biodiversity Enhancement Value Estimates
+BioDiv_SW_EV=BioDiv_SW_SAV - BioDiv_SW_NOSAV
+# BioDiv_SW_EV=BioDiv_SW_SAV_corrected - BioDiv_SW_NOSAV_corrected
+BioDiv_SW_EV=mask(BioDiv_SW_EV,mask=Total_Predicted_Seagrass)
+
+#Raw Deep Water Biodiversity Enhancement Value Estimates
+BioDiv_DW_EV=BioDiv_DW_SAV - BioDiv_DW_NOSAV
+BioDiv_DW_EV=mask(BioDiv_DW_EV,mask=Total_Predicted_Seagrass)
+
+# #Masking the BioDiv EV maps to their depth ranges
+BioDiv_SW_EV_mask=mask(BioDiv_SW_EV,mask=shallow,updatevalue=NA)#making it so that the zscores can be added together int one layer 
+
+BioDiv_DW_EV_mask=mask(BioDiv_DW_EV,mask=deep,updatevalue=NA)
+
+#making it so that the raw values and zscores can be added together int one layer 
+BioDiv_SW_EV_mask[is.na(BioDiv_SW_EV_mask)==TRUE]<-0 
+BioDiv_DW_EV_mask[is.na(BioDiv_DW_EV_mask)==TRUE]<-0 
+
+#rescaling from 0 to 1
+BioDiv_SW_EV_mask=rescale0to1(BioDiv_SW_EV_mask)
+BioDiv_DW_EV_mask=rescale0to1(BioDiv_DW_EV_mask)
+
+#Creating a raw map of BEV, i.e., the number of expected species above unvegetated levels.
+BioDiv_EV_Raw=overlay(Total_Predicted_Seagrass[[1]],BioDiv_DW_EV_mask[[1]],BioDiv_SW_EV_mask[[1]],fun=function(a,b,c){return(a + b + c)})
+names(BioDiv_EV_Raw)<-c("BioDiv_EV_Raw")
+plot(BioDiv_EV_Raw)
+
+#Exporting RAW maps for confirmed beds and potential restoration areas
+BioDiv_EV_Raw_Confirmed=mask(BioDiv_EV_Raw,mask=Confirmed,updatevalue=NA)
+writeRaster(BioDiv_EV_Raw_Confirmed,"input_data/ES-Model-Outputs/BioDiv_EV_Raw_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+BioDiv_EV_Raw_PRAs=mask(BioDiv_EV_Raw,mask=Unconfirmed,updatevalue=NA)
+writeRaster(BioDiv_EV_Raw_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/BioDiv_EV_Raw_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+# ##Calcualting the percent increas of seagrasses 
+# BioDiv_SW_Perc<-100*(BioDiv_SW_EV/BioDiv_SW_SAV_corrected)
+# BioDiv_DW_Perc<-100*(BioDiv_DW_EV/BioDiv_DW_SAV)
+# 
+# # #Masking the BioDiv EV maps to their depth ranges
+# BioDiv_SW_Perc_mask=mask(BioDiv_SW_Perc,mask=shallow,updatevalue=NA)#making it so that the zscores can be added together int one layer 
+# # BioDiv_SW_Perc_mask[Dry_Tortugas_Mask==0] <- NA
+# # BioDiv_SW_Perc_mask[Miami_Mask_Mask==0] <- NA 
+# 
+# BioDiv_DW_Perc_mask=mask(BioDiv_DW_Perc,mask=deep,updatevalue=NA)
+# # BioDiv_DW_Perc_mask[Dry_Tortugas_Mask==0] <- NA
+# # BioDiv_DW_Perc_mask[Miami_Mask_Mask==0] <- NA 
+# 
+# #making it so that the percent values can be added together int one layer 
+# BioDiv_SW_Perc_mask[is.na(BioDiv_SW_Perc_mask)==TRUE]<-0 
+# BioDiv_DW_Perc_mask[is.na(BioDiv_DW_Perc_mask)==TRUE]<-0 
+# 
+# BioDiv_EV_Perc=overlay(Total_Predicted_Seagrass[[1]],BioDiv_DW_Perc_mask[[1]],BioDiv_SW_Perc_mask[[1]],fun=function(a,b,c){return(a + b + c)})
+# names(BioDiv_EV_Perc)<-c("BioDiv_EV_Perc")
+# plot(BioDiv_EV_Perc)
+
+# #Exporting PERCENT maps for confirmed beds and potential restoration areas
+# BioDiv_EV_Perc_Confirmed=mask(BioDiv_EV_Perc,mask=Confirmed,updatevalue=NA)
+# writeRaster(BioDiv_EV_Perc_Confirmed,"input_data/ES-Model-Outputs/BioDiv_EV_Percent_Confirmed.tif",format="GTiff",overwrite=TRUE)
+# 
+# BioDiv_EV_Perc_PRAs=mask(BioDiv_EV_Perc,mask=Unconfirmed,updatevalue=NA)
+# writeRaster(BioDiv_EV_Perc_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/ES-Model-Outputs/BioDiv_EV_Percent_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+
+#Creating a Zscores map of BEV, i.e., the number of expected species above unvegetated levels.
+# BioDiv_EV_Zscores=overlay(Total_Predicted_Seagrass[[1]],BioDiv_SW_EV_Zscore[[1]],BioDiv_DW_EV_Zscore[[1]],fun=function(a,b,c){return(a + b + c)})
+BioDiv_EV_Zscores=normImage(BioDiv_EV_Raw,norm=TRUE)
+names(BioDiv_EV_Zscores)<-c("BioDiv_EV_Zscores")
+plot(BioDiv_EV_Zscores)
+
+#BioDiv EV Zscores
+BioDiv_EV_Zscores_Confirmed=mask(BioDiv_EV_Zscores,mask=Confirmed,updatevalue=NA)
+writeRaster(BioDiv_EV_Zscores_Confirmed,"input_data/ES-Model-Outputs/BioDiv_EV_Zscores_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+
+BioDiv_EV_Zscores_PRAs=mask(BioDiv_EV_Zscores,mask=Unconfirmed,updatevalue=NA)
+writeRaster(BioDiv_EV_Zscores_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/BioDiv_EV_Zscores_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+ls()
+rm(list= ls()[!(ls() %in% c("Atlantic_Mask","Dry_Tortugas_Mask","fl_shoreline",
+                            "Total_Predicted_Seagrass","Confirmed", "Unconfirmed",
+                            "BioDiv_EV_Raw","BioDiv_EV_Raw_Confirmed","BioDiv_EV_Raw_PRAs",
+                            "BioDiv_EV_Perc","BioDiv_EV_Perc_Confirmed", "BioDiv_EV_Perc_PRAs",
+                            "BioDiv_EV_Zscores","BioDiv_EV_Zscores_Confirmed",
+                            "study_area",
+                            "BioDiv_EV_Zscores_PRAs","Saved_RData_Dir"))])
+```
+
+#prepping Nursery Habitat EV datasets
+```{r}
+#Loading data
+#gray snapper
+gray_snapper_SAV<-raster(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_output/nursery_time_averaged/gray_snapper_probability_annual_clim.tif",sep=""))
+gray_snapper_NOSAV<-raster(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_output/nursery_time_averaged/gray_snapper_probability_annual_clim_NOSAV_interp.tif",sep=""))
+gray_snapper_NOSAV=resample(x = gray_snapper_NOSAV,y = gray_snapper_SAV)
+gray_snapper_NOSAV=mask(gray_snapper_NOSAV,gray_snapper_SAV)
+
+#white_grunt
+white_grunt_SAV<-raster(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_output/nursery_time_averaged/white_grunt_probability_annual_clim.tif",sep=""))
+white_grunt_NOSAV<-raster(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_output/nursery_time_averaged/white_grunt_probability_annual_clim_NOSAV_interp.tif",sep=""))
+white_grunt_NOSAV=resample(x = white_grunt_NOSAV,y = white_grunt_SAV)
+white_grunt_NOSAV=mask(white_grunt_NOSAV,white_grunt_SAV)
+
+#spotted seatrout
+spotted_seatrout_SAV<-raster(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_output/nursery_time_averaged/spotted_seatrout_probability_annual_clim.tif",sep=""))
+spotted_seatrout_NOSAV<-raster(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_output/nursery_time_averaged/spotted_seatrout_probability_annual_clim_NOSAV_interp.tif",sep=""))
+spotted_seatrout_NOSAV=resample(x = spotted_seatrout_NOSAV,y = spotted_seatrout_SAV)
+spotted_seatrout_NOSAV=mask(spotted_seatrout_NOSAV,spotted_seatrout_NOSAV)
+
+#lane snapper
+lane_snapper_SAV<-raster(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_output/nursery_time_averaged/lane_snapper_probability_annual_clim.tif",sep=""))
+lane_snapper_NOSAV<-raster(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_output/nursery_time_averaged/lane_snapper_probability_annual_clim_NOSAV_interp.tif",sep=""))
+lane_snapper_NOSAV=resample(x = lane_snapper_NOSAV,y = lane_snapper_SAV)
+lane_snapper_NOSAV=mask(lane_snapper_NOSAV,lane_snapper_SAV)
+
+# sheepshead
+sheepshead_SAV<-raster(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_output/nursery_time_averaged/sheepshead_probability_annual_clim_interp.tif",sep=""))
+sheepshead_SAV=resample(x=sheepshead_SAV,y = Total_Predicted_Seagrass)
+
+sheepshead_NOSAV<-raster(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_output/nursery_time_averaged/sheepshead_probability_annual_clim_NOSAV_interp.tif",sep=""))
+sheepshead_NOSAV=resample(x=sheepshead_NOSAV,y = Total_Predicted_Seagrass)
+
+# pink shrimp
+pink_shrimp_SAV<-raster(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_output/nursery_time_averaged/pink_shrimp_probability_annual_clim.tif",sep=""))
+pink_shrimp_NOSAV<-raster(paste(Saved_RData_Dir,"Modeling-NurseryHabitat-in-FLSeagrassBeds/model_output/nursery_time_averaged/pink_shrimp_probability_annual_clim_NOSAV_interp.tif",sep=""))
+pink_shrimp_NOSAV=resample(x = pink_shrimp_NOSAV,y = pink_shrimp_SAV)
+pink_shrimp_NOSAV=mask(pink_shrimp_NOSAV,pink_shrimp_SAV)
+
+
+#Raw NHV Estimates
+Gray_Snapper_EV=gray_snapper_SAV - gray_snapper_NOSAV
+White_Grunt_EV=white_grunt_SAV - white_grunt_NOSAV
+Spotted_Seatrout_EV=spotted_seatrout_SAV - spotted_seatrout_NOSAV
+Lane_Snapper_EV=lane_snapper_SAV - lane_snapper_NOSAV
+Sheepshead_EV=sheepshead_SAV - sheepshead_NOSAV
+Pink_Shrimp_EV=pink_shrimp_SAV - pink_shrimp_NOSAV
+
+
+# Creating a map of the raw mean probability of encountering nursery species
+# NursHab_EV_Raw=mean(Gray_Snapper_EV,White_Grunt_EV,Spotted_Seatrout_EV,Lane_Snapper_EV,Pink_Shrimp_EV,Sheepshead_EV)
+NursHab_EV_Raw=overlay(Gray_Snapper_EV[[1]],White_Grunt_EV[[1]],Spotted_Seatrout_EV[[1]],Lane_Snapper_EV[[1]],Pink_Shrimp_EV[[1]],Sheepshead_EV[[1]],fun=function(a,b,c,d,e,f){return(a + b + c + d + e +f)})
+NursHab_EV_Raw=mask(NursHab_EV_Raw,mask=Total_Predicted_Seagrass)
+
+
+#Exporting RAW maps for confirmed beds and potential restoration areas
+#gray snapper
+Gray_Snapper_EV_Raw_Confirmed=mask(Gray_Snapper_EV,mask=Confirmed,updatevalue=NA)
+writeRaster(Gray_Snapper_EV_Raw_Confirmed,"input_data/ES-Model-Outputs/Gray_Snapper_EV_Raw_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+Gray_Snapper_Raw_PRAs=mask(Gray_Snapper_EV,mask=Unconfirmed,updatevalue=NA)
+writeRaster(Gray_Snapper_Raw_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Gray_Snapper_EV_Raw_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+#white grun
+White_Grunt_EV_Raw_Confirmed=mask(White_Grunt_EV,mask=Confirmed,updatevalue=NA)
+writeRaster(White_Grunt_EV_Raw_Confirmed,"input_data/ES-Model-Outputs/White_Grunt_EV_Raw_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+White_Grunt_EV_Raw_PRAs=mask(White_Grunt_EV,mask=Unconfirmed,updatevalue=NA)
+writeRaster(White_Grunt_EV_Raw_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/White_Grunt_EV_Raw_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+# spotteed seatrout
+Spotted_Seatrout_EV_Raw_Confirmed=mask(Spotted_Seatrout_EV,mask=Confirmed,updatevalue=NA)
+writeRaster(Spotted_Seatrout_EV_Raw_Confirmed,"input_data/ES-Model-Outputs/Spotted_Seatrout_EV_Raw_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+Spotted_Seatrout_EV_Raw_PRAs=mask(Spotted_Seatrout_EV,mask=Unconfirmed,updatevalue=NA)
+writeRaster(Spotted_Seatrout_EV_Raw_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Spotted_Seatrout_EV_Raw_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+# pink shrimp
+Pink_Shrimp_EV_Raw_Confirmed=mask(Pink_Shrimp_EV,mask=Confirmed,updatevalue=NA)
+writeRaster(Pink_Shrimp_EV_Raw_Confirmed,"input_data/ES-Model-Outputs/Pink_Shrimp_EV_Raw_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+Pink_Shrimp_EV_Raw_PRAs=mask(Pink_Shrimp_EV,mask=Unconfirmed,updatevalue=NA)
+writeRaster(Pink_Shrimp_EV_Raw_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Pink_Shrimp_EV_Raw_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+# lane snapper
+Lane_Snapper_EV_Raw_Confirmed=mask(Lane_Snapper_EV,mask=Confirmed,updatevalue=NA)
+writeRaster(Lane_Snapper_EV_Raw_Confirmed,"input_data/ES-Model-Outputs/Lane_Snapper_EV_Raw_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+Lane_Snapper_EV_Raw_PRAs=mask(Lane_Snapper_EV,mask=Unconfirmed,updatevalue=NA)
+writeRaster(Lane_Snapper_EV_Raw_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Lane_Snapper_EV_Raw_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+# lane snapper
+Sheepshead_EV_Raw_Confirmed=mask(Sheepshead_EV,mask=Confirmed,updatevalue=NA)
+writeRaster(Sheepshead_EV_Raw_Confirmed,"input_data/ES-Model-Outputs/Sheepshead_EV_Raw_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+Sheepshead_EV_Raw_PRAs=mask(Sheepshead_EV,mask=Unconfirmed,updatevalue=NA)
+writeRaster(Lane_Snapper_EV_Raw_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Sheepshead_EV_Raw_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+# total nursery habitat
+NursHab_EV_Raw_Confirmed=mask(NursHab_EV_Raw,mask=Confirmed,updatevalue=NA)
+writeRaster(NursHab_EV_Raw_Confirmed,"input_data/ES-Model-Outputs/NursHab_EV_Raw_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+NursHab_EV_Raw_PRAs=mask(NursHab_EV_Raw,mask=Unconfirmed,updatevalue=NA)
+writeRaster(NursHab_EV_Raw_PRAs,paste(Saved_RData_Dir,"Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/NursHab_EV_Raw_PRAs.tif",sep=""),format="GTiff",overwrite=TRUE)
+
+# Creating Z-scores map for Nursery Habitat EV, i.e., centering and normalizin.
+# First subtracts the mean from each pixel, placing the mean at the center. Then divides by the standard deviation, such that the values equate to the number of standard deviations above the mean. 
+NursHab_EV_Zscores=normImage(NursHab_EV_Raw,norm=TRUE)
+
+
+Gray_Snapper_EV_Zscores=normImage(Gray_Snapper_EV,norm=TRUE)
+White_Grunt_EV_Zscores=normImage(White_Grunt_EV,norm=TRUE)
+Spotted_Seatrout_EV_Zscores=normImage(Spotted_Seatrout_EV,norm=TRUE)
+Pink_Shrimp_EV_Zscores=normImage(Pink_Shrimp_EV,norm=TRUE)
+Lane_Snapper_EV_Zscores=normImage(Lane_Snapper_EV,norm=TRUE)
+Sheepshead_EV_Zscores=normImage(Sheepshead_EV,norm=TRUE)
+
+#Exporting zscore maps for confirmed beds and potential restoration areas
+#gray snapper
+Gray_Snapper_EV_Zscores_Confirmed=mask(Gray_Snapper_EV_Zscores,mask=Confirmed,updatevalue=NA)
+writeRaster(Gray_Snapper_EV_Zscores_Confirmed,"input_data/ES-Model-Outputs/Gray_Snapper_EV_Zscores_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+Gray_Snapper_Zscores_PRAs=mask(Gray_Snapper_EV_Zscores,mask=Unconfirmed,updatevalue=NA)
+writeRaster(Gray_Snapper_Zscores_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Gray_Snapper_EV_Zscores_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+#white grun
+White_Grunt_EV_Zscores_Confirmed=mask(White_Grunt_EV_Zscores,mask=Confirmed,updatevalue=NA)
+writeRaster(White_Grunt_EV_Zscores_Confirmed,"input_data/ES-Model-Outputs/White_Grunt_EV_Sscores_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+White_Grunt_EV_Zscores_PRAs=mask(White_Grunt_EV_Zscores,mask=Unconfirmed,updatevalue=NA)
+writeRaster(White_Grunt_EV_Zscores_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/White_Grunt_EV_Zscores_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+# spotteed seatrout
+Spotted_Seatrout_EV_Zscores_Confirmed=mask(Spotted_Seatrout_EV_Zscores,mask=Confirmed,updatevalue=NA)
+writeRaster(Spotted_Seatrout_EV_Zscores_Confirmed,"input_data/ES-Model-Outputs/Spotted_Seatrout_EV_Zscores_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+Spotted_Seatrout_EV_Zscores_PRAs=mask(Spotted_Seatrout_EV_Zscores,mask=Unconfirmed,updatevalue=NA)
+writeRaster(Spotted_Seatrout_EV_Zscores_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Spotted_Seatrout_EV_Zscores_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+# pink shrimp
+Pink_Shrimp_EV_Zscores_Confirmed=mask(Pink_Shrimp_EV_Zscores,mask=Confirmed,updatevalue=NA)
+writeRaster(Pink_Shrimp_EV_Zscores_Confirmed,"input_data/ES-Model-Outputs/Pink_Shrimp_EV_Zscores_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+Pink_Shrimp_EV_Zscores_PRAs=mask(Pink_Shrimp_EV_Zscores,mask=Unconfirmed,updatevalue=NA)
+writeRaster(Pink_Shrimp_EV_Zscores_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Pink_Shrimp_EV_Zscores_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+# lane snapper
+Lane_Snapper_EV_Zscores_Confirmed=mask(Lane_Snapper_EV_Zscores,mask=Confirmed,updatevalue=NA)
+writeRaster(Lane_Snapper_EV_Zscores_Confirmed,"input_data/ES-Model-Outputs/Lane_Snapper_EV_Zscores_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+Lane_Snapper_EV_Zscores_PRAs=mask(Lane_Snapper_EV_Zscores,mask=Unconfirmed,updatevalue=NA)
+writeRaster(Lane_Snapper_EV_Zscores_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Lane_Snapper_EV_Zscores_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+# lane snapper
+Sheepshead_EV_Zscores_Confirmed=mask(Sheepshead_EV_Zscores,mask=Confirmed,updatevalue=NA)
+writeRaster(Sheepshead_EV_Zscores_Confirmed,"input_data/ES-Model-Outputs/Sheepshead_EV_Zscores_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+Sheepshead_EV_Zscores_PRAs=mask(Sheepshead_EV_Zscores,mask=Unconfirmed,updatevalue=NA)
+writeRaster(Sheepshead_EV_Zscores_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Sheepshead_EV_Zscores_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+# Clipping to Confirmed vs Unconfirmed Seagrass Beds 
+NursHab_EV_Zscores_Confirmed=mask(NursHab_EV_Zscores,mask=Confirmed,updatevalue=NA)
+writeRaster(NursHab_EV_Zscores_Confirmed,"input_data/ES-Model-Outputs/NursHab_EV_Zscores_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+NursHab_EV_Zscores_PRAs=mask(NursHab_EV_Zscores,mask=Unconfirmed,updatevalue=NA)
+writeRaster(NursHab_EV_Zscores_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/NursHab_EV_Zscores_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+ 
+
+ls()
+rm(list= ls()[!(ls() %in% c("Atlantic_Mask","Dry_Tortugas_Mask","fl_shoreline",
+                            "Total_Predicted_Seagrass","Confirmed", "Unconfirmed",
+                            "BioDiv_EV_Raw","BioDiv_EV_Raw_Confirmed","BioDiv_EV_Raw_PRAs",
+                            "BioDiv_EV_Perc","BioDiv_EV_Perc_Confirmed", "BioDiv_EV_Perc_PRAs",
+                            "BioDiv_EV_Zscores","BioDiv_EV_Zscores_Confirmed",
+                            "BioDiv_EV_Zscores_PRAs",
+                            "NursHab_EV_Raw",
+                            "NursHab_EV_Raw_Confirmed","NursHab_EV_Raw_PRAs",
+                            "NursHab_EV_Perc","NursHab_EV_Perc_Confirmed","NursHab_EV_Perc_PRAs",
+                            "NursHab_EV_Zscores",
+                            "NursHab_EV_Zscores_Confirmed","NursHab_EV_Zscores_PRAs",
+                            "NursHab_EV_Com_Weighted_Zscores",
+                            "NursHab_EV_Com_Weighted_Zscores_Confirmed",
+                            "NursHab_EV_Com_Weighted_Zscores_PRAs",
+                            "NursHab_EV_Rec_Weighted_Zscores",
+                            "NursHab_EV_Rec_Weighted_Zscores_Confirmed",
+                            "NursHab_EV_Rec_Weighted_Zscores_PRAs",
+                            "study_area",
+                            "Saved_RData_Dir"))])
+```
+
+
+#prepping Blue Carbon EV datasets
+```{r}
+
+#Blue Carbon Stock 
+BC_Total_Stock_Raw=raster(paste(Saved_RData_Dir,"Modeling-Blue-Carbon-Storage-in-FLSeagrassBeds/model_output/blue_carbon/blue_carbon_stock.tif",sep=""))
+BC_Total_Stock_Raw=mask(BC_Total_Stock_Raw,mask=Total_Predicted_Seagrass)
+
+BC_Total_Emissions_Raw=BC_Total_Stock_Raw*3.67
+
+
+#Blue Carbon Emissions Reduction Value
+BC_Emissions_EV_Raw=raster(paste(Saved_RData_Dir,"Modeling-Blue-Carbon-Storage-in-FLSeagrassBeds/model_output/blue_carbon/emissions_avoidance_value_all_suitable_areas.tif",sep=""))
+BC_Emissions_EV_Raw=mask(BC_Emissions_EV_Raw,mask=Total_Predicted_Seagrass)
+
+BC_Emissions_EV_Raw_Confirmed=mask(BC_Emissions_EV_Raw,mask=Confirmed)
+BC_Emissions_EV_Raw_PRAs=mask(BC_Emissions_EV_Raw,mask=Unconfirmed)
+
+
+#Blue Carbon Emissions Avoidance Value 
+BC_Emissions_EV_Perc<-100*(BC_Emissions_EV_Raw/BC_Total_Emissions_Raw)
+
+BC_Emissions_EV_Perc_Confirmed=mask(BC_Emissions_EV_Perc,mask=Confirmed)
+BC_Emissions_EV_Perc_PRAs=mask(BC_Emissions_EV_Perc,mask=Unconfirmed)
+
+#Exporting the RAW maps to the working directories for further analysis
+# #Multi service paper directory
+# writeRaster(BC_Emissions_EV_Raw_Confirmed,filename = "input_data/ES-Model-Outputs/BC_Storage_EV_Raw_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+writeRaster(BC_Emissions_EV_Raw_Confirmed,filename = "input_data/ES-Model-Outputs/BC_Emissions_EV_Raw_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+writeRaster(BC_Emissions_EV_Perc_Confirmed,filename = "input_data/ES-Model-Outputs/BC_Emissions_EV_Percent_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+# writeRaster(BC_SocialCost_EV_Raw_Confirmed,filename = "input_data/ES-Model-Outputs/BC_SocialCost_EV_Raw_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+#tradeoffs paper directory
+# writeRaster(BC_Storage_EV_Raw_PRAs,filename = paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/ES-Model-Outputs/BC_Storage_EV_Raw_PRAs.tif",sep=""),format="GTiff",overwrite=TRUE)
+
+writeRaster(BC_Emissions_EV_Raw_PRAs,filename =paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/ES-Model-Outputs/BC_Emissions_EV_Raw_PRAs.tif",sep=""),format="GTiff",overwrite=TRUE)
+
+writeRaster(BC_Emissions_EV_Perc_PRAs,filename =paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/BC_Emissions_EV_Percent_PRAs.tif",sep=""),format="GTiff",overwrite=TRUE)
+
+ 
+# writeRaster(BC_SocialCost_EV_Raw_PRAs,filename =paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/ES-Model-Outputs/BC_SocialCost_EV_Raw_PRAs.tif",sep=""),format="GTiff",overwrite=TRUE)
+
+#Creating z-scores maps of the blue carbon value maps 
+#NOTE not outputing more than one zscore map because they will all look the same. 
+BC_Storage_EV_Zscores=normImage(BC_Emissions_EV_Raw,norm=TRUE)
+
+BC_Storage_EV_Zscores_Confirmed=mask(BC_Storage_EV_Zscores,mask=Confirmed)
+BC_Storage_EV_Zscores_PRAs=mask(BC_Storage_EV_Zscores,mask=Unconfirmed)
+
+writeRaster(BC_Storage_EV_Zscores_Confirmed,filename = "input_data/ES-Model-Outputs/BC_Storage_EV_Zscores_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+#tradeoffs paper directory
+writeRaster(BC_Storage_EV_Zscores_PRAs,filename = paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/BC_Storage_EV_Zscores_PRAs.tif",sep=""),format="GTiff",overwrite=TRUE)
+
+
+ls()
+rm(list= ls()[!(ls() %in% c("Atlantic_Mask","Dry_Tortugas_Mask","fl_shoreline",
+                            "Total_Predicted_Seagrass","Confirmed", "Unconfirmed",
+                            "BioDiv_EV_Raw","BioDiv_EV_Raw_Confirmed","BioDiv_EV_Raw_PRAs",
+                             "BioDiv_EV_Perc","BioDiv_EV_Perc_Confirmed", "BioDiv_EV_Perc_PRAs",
+                            "BioDiv_EV_Zscores","BioDiv_EV_Zscores_Confirmed",
+                            "BioDiv_EV_Zscores_PRAs",
+                            "NursHab_EV_Raw",
+                            "NursHab_EV_Raw_Confirmed","NursHab_EV_Raw_PRAs",
+                            "NursHab_EV_Perc","NursHab_EV_Perc_Confirmed","NursHab_EV_Perc_PRAs",
+                            "NursHab_EV_Zscores",
+                            "NursHab_EV_Zscores_Confirmed","NursHab_EV_Zscores_PRAs",
+                            "NursHab_EV_Com_Weighted_Zscores",
+                            "NursHab_EV_Com_Weighted_Zscores_Confirmed",
+                            "NursHab_EV_Com_Weighted_Zscores_PRAs",
+                            "NursHab_EV_Rec_Weighted_Zscores",
+                            "NursHab_EV_Rec_Weighted_Zscores_Confirmed",
+                            "NursHab_EV_Rec_Weighted_Zscores_PRAs",
+                            "BC_Storage_EV_Raw_Confirmed", "BC_Storage_EV_Raw_PRAs",
+                            "BC_Emissions_EV_Raw_Confirmed", "BC_Emissions_EV_Raw_PRAs",
+                            "BC_Emissions_EV_Perc","BC_Emissions_EV_Perc_Confirmed","BC_Emissions_EV_Perc_PRAs",
+                            "BC_SocialCost_EV_Raw_Confirmed", "BC_SocialCost_EV_Raw_PRAs",
+                            "BC_Storage_EV_Zscores_Confirmed", "BC_Storage_EV_Zscores_PRAs",
+                            "study_area",
+                            "Saved_RData_Dir"))])
+```
+
+#prepping the Coastal Protection EV datasets
+```{r}
+#Prepping for potential changes to the manuscript. 
+# #weighting the index by depth and seagrass cover
+Depth<-raster(paste(Saved_RData_Dir,"Large_Project_DataSets/BioOracle/data_output/Depth.tif",sep=""))
+Depth_weight<-Depth
+Depth_weight[Depth_weight >= 0]<-NA
+Depth_weight[Depth_weight < -4]<-NA
+# Depth_weight[Depth_weight >= -1 & Depth_weight <0 ]<- 0.9
+# Depth_weight[Depth_weight >= -2 & Depth_weight <0 ]<- 0.8
+Depth_weight[Depth_weight > -3 & Depth_weight <0 ]<- 1
+Depth_weight[Depth_weight >= -4 & Depth_weight <0 ]<- 0.6
+# Depth_weight[Depth_weight >= -4 & Depth_weight <0 ]<- 0.3
+
+Seagrass_weight <- Seagrass_Cover
+Seagrass_weight[Seagrass_weight < 5]<- NA
+Seagrass_weight <- Seagrass_weight/100
+# Seagrass_weight[Seagrass_weight >= 5 & Seagrass_weight <25]<-0.7
+# Seagrass_weight[Seagrass_weight >= 25 & Seagrass_weight <75]<-0.8
+# Seagrass_weight[Seagrass_weight >= 75]<-0.9
+
+#Coastal exposure map accounting for other biogenic habitats, wave energy
+Exposure_EV_Raw=raster("input_data/Coastal_Vulnerability_Invest_Outputs/coastal_exposure_rs_wgs.tif")
+Exposure_EV_Raw=resample(x=Exposure_EV_Raw,y=Total_Predicted_Seagrass)
+Exposure_EV_Raw=mask(Exposure_EV_Raw,mask=Total_Predicted_Seagrass,updatevalue=NA)
+# Exposure_EV_Raw[is.na(mask_1km)==TRUE]<-0
+# # 
+# Exposure_EV_Raw=mask(Exposure_EV_Raw,mask=Total_Predicted_Seagrass,updatevalue=NA)
+
+#Can use if we make chanegs to the manuscript. 
+Exposure_EV_Depth_Corrected=Exposure_EV_Raw*Depth_weight
+# Exposure_EV_Seagrass_Corrected=Exposure_EV_Raw*Seagrass_weight
+# Exposure_EV_DepthxSeagrass_Corrected=Exposure_EV_Raw*Depth_weight*Seagrass_weight
+
+#Exporting RAW maps for confirmed beds and potential restoration areas
+Exposure_EV_Raw_Confirmed=mask(Exposure_EV_Depth_Corrected,mask=Confirmed,updatevalue=NA)
+writeRaster(Exposure_EV_Raw_Confirmed,"input_data/ES-Model-Outputs/Exposure_EV_Raw_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+Exposure_EV_Raw_PRAs=mask(Exposure_EV_Raw,mask=Unconfirmed,updatevalue=NA)
+writeRaster(Exposure_EV_Raw_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Exposure_EV_Raw_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+
+#Creating z-scores maps of the coastal exposure maps
+#NOTE not outputing more than one zscore map because they will all look the same.
+Exposure_EV_Zscores=normImage(Exposure_EV_Depth_Corrected,norm=TRUE)
+
+Exposure_EV_Zscores_Confirmed=mask(Exposure_EV_Zscores,mask=Confirmed,updatevalue=NA)
+Exposure_EV_Zscores_PRAs=mask(Exposure_EV_Zscores,mask=Unconfirmed,updatevalue=NA)
+
+writeRaster(Exposure_EV_Zscores_Confirmed,filename = "input_data/ES-Model-Outputs/Exposure_EV_Zscores_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+#tradeoffs paper directory
+writeRaster(Exposure_EV_Zscores_PRAs,filename = paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Exposure_EV_Zscores_PRAs.tif",sep=""),format="GTiff",overwrite=TRUE)
+
+#Coastal population map from landscan. ve energy
+Population_EV_Raw=raster("input_data/Coastal_Vulnerability_Invest_Outputs/coastal_population_rs_wgs.tif")
+Population_EV_Raw=resample(x=Population_EV_Raw,y=Total_Predicted_Seagrass)
+Population_EV_Raw=mask(Population_EV_Raw,mask=Total_Predicted_Seagrass,updatevalue=NA)
+
+#Exporting RAW maps for confirmed beds and potential restoration areas
+Population_EV_Raw_Confirmed=mask(Population_EV_Raw,mask=Confirmed,updatevalue=NA)
+writeRaster(Population_EV_Raw_Confirmed,"input_data/ES-Model-Outputs/Population_EV_Raw_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+Population_EV_Raw_PRAs=mask(Population_EV_Raw,mask=Unconfirmed,updatevalue=NA)
+writeRaster(Population_EV_Raw_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Population_EV_Raw_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+#Creating z-scores maps of the coastal expsoure maps
+#NOTE not outputing more than one zscore map because they will all look the same.
+Population_EV_Zscores=normImage(Population_EV_Raw,norm=TRUE)
+
+Population_EV_Zscores_Confirmed=mask(Population_EV_Zscores, mask=Confirmed,updatevalue=NA)
+Population_EV_Zscores_PRAs=mask(Population_EV_Zscores, mask=Unconfirmed,updatevalue=NA)
+
+writeRaster(Population_EV_Zscores_Confirmed,filename = "input_data/ES-Model-Outputs/Population_EV_Zscores_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+#tradeoffs paper directory
+writeRaster(Population_EV_Zscores_PRAs,filename = paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Population_EV_Zscores_PRAs.tif",sep=""),format="GTiff",overwrite=TRUE)
+
+ls()
+rm(list= ls()[!(ls() %in% c("Atlantic_Mask","Dry_Tortugas_Mask","fl_shoreline",
+                            "Total_Predicted_Seagrass","Confirmed", "Unconfirmed",
+                            "BioDiv_EV_Raw","BioDiv_EV_Raw_Confirmed","BioDiv_EV_Raw_PRAs",
+                             "BioDiv_EV_Perc","BioDiv_EV_Perc_Confirmed", "BioDiv_EV_Perc_PRAs",
+                            "BioDiv_EV_Zscores","BioDiv_EV_Zscores_Confirmed",
+                            "BioDiv_EV_Zscores_PRAs",
+                            "NursHab_EV_Raw",
+                            "NursHab_EV_Raw_Confirmed","NursHab_EV_Raw_PRAs",
+                            "NursHab_EV_Perc","NursHab_EV_Perc_Confirmed","NursHab_EV_Perc_PRAs",
+                            "NursHab_EV_Zscores",
+                            "NursHab_EV_Zscores_Confirmed","NursHab_EV_Zscores_PRAs",
+                            "NursHab_EV_Com_Weighted_Zscores",
+                            "NursHab_EV_Com_Weighted_Zscores_Confirmed",
+                            "NursHab_EV_Com_Weighted_Zscores_PRAs",
+                            "NursHab_EV_Rec_Weighted_Zscores",
+                            "NursHab_EV_Rec_Weighted_Zscores_Confirmed",
+                            "NursHab_EV_Rec_Weighted_Zscores_PRAs",
+                            "BC_Storage_EV_Raw_Confirmed", "BC_Storage_EV_Raw_PRAs",
+                            "BC_Emissions_EV_Raw_Confirmed", "BC_Emissions_EV_Raw_PRAs",
+                            "BC_Emissions_EV_Perc","BC_Emissions_EV_Perc_Confirmed","BC_Emissions_EV_Perc_PRAs",
+                            "BC_SocialCost_EV_Raw_Confirmed", "BC_SocialCost_EV_Raw_PRAs",
+                            "BC_Storage_EV_Zscores_Confirmed", "BC_Storage_EV_Zscores_PRAs",
+                            "Exposure_EV_Raw", "Exposure_EV_Raw_Confirmed", "Exposure_EV_Raw_PRAs",
+                            "Exposure_EV_Zscores","Exposure_EV_Zscores_Confirmed","Exposure_EV_Zscores_PRAs" , 
+                            "Population_EV_Raw", "Population_EV_Raw_Confirmed", "Population_EV_Raw_PRAs",
+                            "Population_EV_Zscores","Population_EV_Zscores_Confirmed","Population_EV_Zscores_PRAs",  
+                            "study_area",
+                            "Saved_RData_Dir"))])
+
+```
+
+#prepping the Recreation EV datasets
+```{r}
+#RERUN THIS BY 500m from shore??
+############################################
+Rec_SAV_Raw=raster("input_data/Recreational_Use_Invest_Outputs/Log_PUD_FGC_SAV.tif")#
+Rec_SAV_Raw=resample(x=Rec_SAV_Raw,y=study_area)
+Rec_SAV_Raw=mask(Rec_SAV_Raw,mask=Total_Predicted_Seagrass,updatevalue=NA)
+
+
+Rec_NOSAV_Raw=raster("input_data/Recreational_Use_Invest_Outputs/Log_PUD_FGC_NOSAV.tif")# 
+Rec_NOSAV_Raw=resample(x=Rec_NOSAV_Raw,y=study_area)
+Rec_NOSAV_Raw=mask(Rec_NOSAV_Raw,mask=Total_Predicted_Seagrass,updatevalue=NA)
+
+Rec_EV_Raw=Rec_SAV_Raw - Rec_NOSAV_Raw 
+
+# Rec_EV_Perc=(exp(Rec_SAV_Raw) - exp(Rec_NOSAV_Raw)/exp(Rec_SAV_Raw))*100 # why doesnt this work?
+
+#Exporting RAW maps for confirmed beds and potential restoration areas
+Rec_EV_Raw_Confirmed=mask(Rec_EV_Raw,mask=Confirmed,updatevalue=NA)
+writeRaster(Rec_EV_Raw_Confirmed,"input_data/ES-Model-Outputs/Rec_EV_Raw_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+Rec_EV_Raw_PRAs=mask(Rec_EV_Raw,mask=Unconfirmed,updatevalue=NA)
+writeRaster(Rec_EV_Raw_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Rec_EV_Raw_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+#Creating z-scores maps of the coastal exposure maps
+#NOTE not outputing more than one zscore map because they will all look the same.
+Rec_EV_Zscores=normImage(Rec_EV_Raw,norm=TRUE)
+
+Rec_EV_Zscores_Confirmed=mask(Rec_EV_Zscores,mask=Confirmed,updatevalue=NA)
+Rec_EV_Zscores_PRAs=mask(Rec_EV_Zscores,mask=Unconfirmed,updatevalue=NA)
+
+writeRaster(Rec_EV_Zscores_Confirmed,filename = "input_data/ES-Model-Outputs/Rec_EV_Zscores_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+#tradeoffs paper directory
+writeRaster(Rec_EV_Zscores_PRAs,filename = paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/Rec_EV_Zscores_PRAs.tif",sep=""),format="GTiff",overwrite=TRUE)
+
+
+ls()
+rm(list= ls()[!(ls() %in% c("Atlantic_Mask","Dry_Tortugas_Mask","fl_shoreline",
+                            "Total_Predicted_Seagrass","Confirmed", "Unconfirmed",
+                            "BioDiv_EV_Raw","BioDiv_EV_Raw_Confirmed","BioDiv_EV_Raw_PRAs",
+                             "BioDiv_EV_Perc","BioDiv_EV_Perc_Confirmed", "BioDiv_EV_Perc_PRAs",
+                            "BioDiv_EV_Zscores","BioDiv_EV_Zscores_Confirmed",
+                            "BioDiv_EV_Zscores_PRAs",
+                            "NursHab_EV_Raw",
+                            "NursHab_EV_Raw_Confirmed","NursHab_EV_Raw_PRAs",
+                            "NursHab_EV_Perc","NursHab_EV_Perc_Confirmed","NursHab_EV_Perc_PRAs",
+                            "NursHab_EV_Zscores",
+                            "NursHab_EV_Zscores_Confirmed","NursHab_EV_Zscores_PRAs",
+                            "NursHab_EV_Com_Weighted_Zscores",
+                            "NursHab_EV_Com_Weighted_Zscores_Confirmed",
+                            "NursHab_EV_Com_Weighted_Zscores_PRAs",
+                            "NursHab_EV_Rec_Weighted_Zscores",
+                            "NursHab_EV_Rec_Weighted_Zscores_Confirmed",
+                            "NursHab_EV_Rec_Weighted_Zscores_PRAs",
+                            "BC_Storage_EV_Raw_Confirmed", "BC_Storage_EV_Raw_PRAs",
+                            "BC_Emissions_EV_Raw_Confirmed", "BC_Emissions_EV_Raw_PRAs",
+                            "BC_Emissions_EV_Perc","BC_Emissions_EV_Perc_Confirmed","BC_Emissions_EV_Perc_PRAs",
+                            "BC_SocialCost_EV_Raw_Confirmed", "BC_SocialCost_EV_Raw_PRAs",
+                            "BC_Storage_EV_Zscores_Confirmed", "BC_Storage_EV_Zscores_PRAs",
+                            "Exposure_EV_Raw", "Exposure_EV_Raw_Confirmed", "Exposure_EV_Raw_PRAs",
+                            "Exposure_EV_Zscores","Exposure_EV_Zscores_Confirmed","Exposure_EV_Zscores_PRAs" , 
+                            "Population_EV_Raw", "Population_EV_Raw_Confirmed", "Population_EV_Raw_PRAs",
+                            "Population_EV_Zscores","Population_EV_Zscores_Confirmed","Population_EV_Zscores_PRAs", 
+                            "Rec_EV_Raw", "Rec_EV_Raw_Confirmed", "Rec_EV_Raw_PRAs", 
+                            "Rec_EV_Zscores","Rec_EV_Zscores_Confirmed","Rec_EV_Zscores_PRAs",      
+                            "study_area",
+                            "Saved_RData_Dir"))])
+
+```
+
+#prepping the hotspot EV datasets
+```{r}
+ES_hotspots=raster("input_data/Hotspots_Map/ES_Hotspots_1z.tif")
+ES_hotspots[is.na(ES_hotspots)==TRUE]<-0
+ES_hotspots=resample(x=ES_hotspots,y=study_area)
+
+#Exporting RAW maps for confirmed beds and potential restoration areas
+ES_hotspots_Confirmed=mask(ES_hotspots,mask=Confirmed,updatevalue=NA)
+writeRaster(ES_hotspots_Confirmed,"input_data/ES-Model-Outputs/ES_hotspots_Confirmed.tif",format="GTiff",overwrite=TRUE)
+
+ES_hotspots_PRAs=mask(ES_hotspots,mask=Unconfirmed,updatevalue=NA)
+writeRaster(ES_hotspots_PRAs, paste(Saved_RData_Dir, "Seagrass-Restoration-Trade-offs-Analysis/input_data/ES-Model-Outputs/ES_hotspots_PRAs.tif", sep=""),format="GTiff",overwrite=TRUE)
+
+
+```
